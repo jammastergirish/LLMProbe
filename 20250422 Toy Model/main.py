@@ -33,7 +33,7 @@ from transformer_lens import HookedTransformer
 # ✅ Dataset source
 # --------------------
 # options: "truthfulqa", "boolq", "truefalse", or "all"
-dataset_source = "truefalse"
+dataset_source = "arithmetic"
 
 # --------------------
 # ✅ Model selection
@@ -64,6 +64,9 @@ device = torch.device(
 )
 print(f"🖥️  Using {device}")
 
+output_layer = "resid_post"
+output_layer = "attn_out"
+# output_layer = "mlp_out"
 
 def is_decoder_only_model(model_name):
     decoder_keywords = ["gpt", "llama", "mistral", "pythia", "deepseek"]
@@ -77,6 +80,14 @@ def get_num_layers(model):
         return model.cfg.n_layers
     else:
         raise AttributeError("Cannot determine number of layers for this model")
+
+
+def filename_prefix(model_name, dataset_source, layer=output_layer):
+    safe_model_name = model_name.replace("/", "-")
+    if is_decoder_only_model(model_name):
+        return f"{safe_model_name}-{dataset_source}-{layer}"
+    else:
+        return f"{safe_model_name}-{dataset_source}"
 
 
 # --------------------
@@ -270,10 +281,13 @@ def get_hidden_states_hf(examples, return_layer=None):
 
 
 def get_hidden_states_transformerlens(
-    examples, model, model_name, tokenizer, output="resid_post", return_layer=None
+    examples, model, model_name, tokenizer, output=output_layer, return_layer=None
 ):
     all_hidden_states = []
     labels = []
+
+    if output is None:
+        output = output_layer
 
     for i, ex in enumerate(examples):
         if i % 100 == 0:
@@ -407,13 +421,13 @@ for layer in range(num_layers):
 # --------------------
 print("📊 Plotting accuracy by layer...")
 plt.plot(range(len(accuracies)), accuracies, marker="o")
-plt.title(f"Truth Detection Accuracy per Layer ({model.config.name_or_path})")
+plt.title(f"Truth Detection Accuracy per Layer ({model_name})")
 plt.xlabel("Layer")
 plt.ylabel("Accuracy")
 plt.grid(True)
 plt.tight_layout()
 plt.savefig(
-    f"{model_name}-{dataset_source}-probe_accuracy_per_layer.png"
+    f"{filename_prefix(model_name, dataset_source)}-probe_accuracy_per_layer.png"
 )  # 💾 Save the plot
 plt.show()
 print("✅ Plot saved")
@@ -421,12 +435,12 @@ print("✅ Plot saved")
 if use_control_tasks:
     plt.figure(figsize=(8, 5))
     plt.plot(range(len(selectivities)), selectivities, marker="o", label="Selectivity")
-    plt.title(f"Selectivity per Layer ({model.config.name_or_path})")
+    plt.title(f"Selectivity per Layer ({model_name})")
     plt.xlabel("Layer")
     plt.ylabel("Selectivity = Real Acc - Control Acc")
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig(f"{model_name}-{dataset_source}-selectivity_by_layer.png")
+    plt.savefig(f"{filename_prefix(model_name, dataset_source)}-selectivity_by_layer.png")
     plt.show()
     print("✅ Saved selectivity_by_layer.png")
 
@@ -487,7 +501,7 @@ for layer in range(num_layers):
 
 plt.tight_layout()
 plt.suptitle("PCA of CLS embeddings by Layer", fontsize=16, y=1.02)
-plt.savefig(f"{model_name}-{dataset_source}-layerwise_pca_grid.png")
+plt.savefig(f"{filename_prefix(model_name, dataset_source)}-layerwise_pca_grid.png")
 plt.show()
 print("✅ Saved as layerwise_pca_grid.png")
 
@@ -509,7 +523,7 @@ print("✅ Saved as layerwise_pca_grid.png")
 # plt.legend()
 # plt.title(f"t-SNE of CLS Embeddings (Layer {layer_to_visualize})")
 # plt.tight_layout()
-# plt.savefig(f"{model_name}-{dataset_source}-tsne_layer10.png")
+# plt.savefig(f"{filename_prefix(model_name, dataset_source)}-tsne_layer10.png")
 # plt.show()
 # print("✅ Saved t-SNE plot as tsne_layer10.png")
 
@@ -543,7 +557,7 @@ if num_layers > 0:
     axs[num_layers - 1].axis("off")
 plt.tight_layout()
 plt.suptitle("Projection onto Truth Direction per Layer", fontsize=20, y=1.02)
-plt.savefig(f"{model_name}-{dataset_source}-truth_projection_grid.png")
+plt.savefig(f"{filename_prefix(model_name, dataset_source)}-truth_projection_grid.png")
 plt.show()
 print("✅ Saved truth_projection_grid.png")
 
@@ -585,8 +599,117 @@ print("✅ Saved truth_projection_grid.png")
 # plt.title("Interpolated Projection onto Truth Direction")
 # plt.grid(True)
 # plt.tight_layout()
-# plt.savefig(f"{model_name}-{dataset_source}-causal_intervention_projection.png")
+# plt.savefig(f"{filename_prefix(model_name, dataset_source)}-causal_intervention_projection.png")
 # plt.show()
 # print("✅ Saved causal_intervention_projection.png")
+
+
+def run_causal_intervention(model, tokenizer, probe, false_prompt, true_prompt, layer, scale=1.0):
+    tokens_false = tokenizer(false_prompt, return_tensors="pt")[
+        "input_ids"].to(model.cfg.device)
+    tokens_true = tokenizer(true_prompt, return_tensors="pt")[
+        "input_ids"].to(model.cfg.device)
+
+    # Run both with cache
+    _, cache_false = model.run_with_cache(tokens_false)
+    _, cache_true = model.run_with_cache(tokens_true)
+
+    # Extract residual stream at that layer
+    resid_false = cache_false["resid_post", layer]
+    resid_true = cache_true["resid_post", layer]
+
+    # Extract direction from trained probe
+    direction = probe.linear.weight[0]  # shape: [d_model]
+
+    # Project the false example residual onto the probe direction
+    projection_false = torch.matmul(resid_false, direction)
+
+    # Inject scaled truth direction into false example
+    injected_resid = resid_false + scale * direction
+
+    # Resume forward pass
+    x = injected_resid
+    for l in range(layer, model.cfg.n_layers):
+        x = model.blocks[l](x)
+    x = model.ln_final(x)
+    logits = model.unembed(x)
+
+    # Decode and compare
+    predicted_id = logits[0, -1].argmax().item()
+    prediction = tokenizer.decode(predicted_id)
+    return prediction, torch.softmax(logits[0, -1], dim=0)[predicted_id].item()
+
+layer = 10
+false_prompt = "5 + 3 = 2"
+true_prompt = "5 + 3 = 8"
+probe = probes[layer]  # from your trained probes
+
+prediction, confidence = run_causal_intervention(model, tokenizer, probe, false_prompt, true_prompt, layer, scale=3.0)
+
+print(f"Prediction after injecting truth direction: {repr(prediction)} (conf: {confidence:.4f})")
+
+# -------------
+
+
+def integrated_gradients(
+    model,              # HookedTransformer
+    tokens,             # Input tokens [1, seq_len]
+    layer,              # Layer index (e.g., 10)
+    target_token_idx,   # Index in vocab to compute attribution toward
+    steps=50            # Number of interpolation steps
+):
+    with torch.no_grad():
+        _, cache = model.run_with_cache(tokens)
+        x_input = cache["resid_post", layer].detach()  # [1, seq_len, d_model]
+
+    baseline = torch.zeros_like(x_input)
+    alphas = torch.linspace(0, 1, steps).to(x_input.device)
+    grads = []
+
+    for alpha in alphas:
+        x_interp = baseline + alpha * (x_input - baseline)
+        x_interp.requires_grad_(True)
+
+        x = x_interp
+        for l in range(layer, model.cfg.n_layers):
+            x = model.blocks[l](x)
+        x = model.ln_final(x)
+        logits = model.unembed(x)  # [1, seq_len, vocab_size]
+
+        logit = logits[0, -1, target_token_idx]
+        logit.backward()
+        grads.append(x_interp.grad.clone())
+        x_interp.grad.zero_()
+
+    grads = torch.stack(grads)  # [steps, 1, seq_len, d_model]
+    avg_grads = grads.mean(dim=0)  # [1, seq_len, d_model]
+    ig = (x_input - baseline) * avg_grads  # [1, seq_len, d_model]
+
+    return ig.squeeze(0)[-1]  # Attribution vector for last token
+
+
+prompt = "5 + 3 = "
+tokens = tokenizer(prompt, return_tensors="pt")[
+    "input_ids"].to(model.cfg.device)
+
+target = "8"
+target_id = tokenizer.encode(target, add_special_tokens=False)[0]
+
+layer = 10  # Or whichever layer you're analyzing
+ig_vector = integrated_gradients(model, tokens, layer, target_id, steps=50)
+
+# Show top contributing dimensions
+topk = torch.topk(ig_vector.abs(), k=10)
+print(f"🔍 Top IG features at layer {layer}:")
+for idx, val in zip(topk.indices.tolist(), topk.values.tolist()):
+    print(f"    Dimension {idx:4d}: {val:.6f}")
+
+probe_dir = probes[layer].linear.weight[0].detach()
+cos_sim = torch.nn.functional.cosine_similarity(ig_vector, probe_dir, dim=0)
+print(f"🧭 Cosine similarity between IG and probe direction: {cos_sim:.4f}")
+
+# -----------
+
+
 
 print("✅ Done!")
