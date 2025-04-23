@@ -85,14 +85,14 @@ if dataset_source in ["truefalse", "all"]:
 
     print("📥 Loading TRUEFALSE (pminervini/true-false)...")
     tf_splits = [
-        # "animals",
+        "animals",
         "cities",
-        # "companies",
+        "companies",
         # "cieacf",
         "inventions",
         "facts",
-        # "elements",
-        # "generated"
+        "elements",
+        "generated"
     ]
 
     datasets_list = []
