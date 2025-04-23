@@ -17,6 +17,11 @@ from datasets import load_dataset
 from sklearn.model_selection import train_test_split
 
 # --------------------
+# ✅ Choose dataset source: 'truthfulqa', 'boolq', or 'both'
+# --------------------
+dataset_source = "truthfulqa"  # 'truthfulqa' or 'boolq' or 'both'
+
+# --------------------
 # ✅ Device setup (MPS on Mac)
 # --------------------
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -33,33 +38,38 @@ model.eval()
 print("✅ BERT is ready.")
 
 # --------------------
-# ✅ Load TruthfulQA (Multiple Choice)
+# ✅ Load dataset
 # --------------------
-print("📄 Loading TruthfulQA (multiple_choice)...")
-dataset = load_dataset("truthful_qa", "multiple_choice")
-data = dataset["validation"]
-print(f"✅ Loaded {len(data)} entries from TruthfulQA.")
 
-# --------------------
-# ✅ Format into [{text, label}], label = 1 for correct, 0 for incorrect answers
-# --------------------
-print("🔄 Processing question/answer pairs...")
+print(f"📄 Loading dataset: {dataset_source.upper()}")
+
 examples = []
 
-for row in data:
-    if "question" not in row or "mc1_targets" not in row:
-        continue
+if dataset_source in ["truthfulqa", "both"]:
+    print("📥 Loading TruthfulQA (multiple_choice)...")
+    tq = load_dataset("truthful_qa", "multiple_choice")["validation"]
 
-    q = row["question"]
-    target = row["mc1_targets"]
-    choices = target.get("choices", [])
-    labels = target.get("labels", [])
+    for row in tq:
+        q = row.get("question", "")
+        targets = row.get("mc1_targets", {})
+        choices = targets.get("choices", [])
+        labels = targets.get("labels", [])
+        for answer, label in zip(choices, labels):
+            examples.append({"text": f"{q} {answer}", "label": label})
 
-    if not choices or not labels:
-        continue
+    print(f"✅ TruthfulQA: {len(examples)} total QA-label pairs so far.")
 
-    for answer, label in zip(choices, labels):
-        examples.append({"text": f"{q} {answer}", "label": label})
+if dataset_source in ["boolq", "both"]:
+    print("📥 Loading BOOLQ...")
+    bq = load_dataset("boolq")["train"]
+
+    for row in bq:
+        question = row["question"]
+        passage = row["passage"]
+        label = 1 if row["answer"] else 0
+        examples.append({"text": f"{question} {passage}", "label": label})
+
+    print(f"✅ BOOLQ added. Total examples now: {len(examples)}")
 
 print(f"✅ Prepared {len(examples)} labeled examples for probing.")
 
