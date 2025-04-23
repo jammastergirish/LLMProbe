@@ -1,9 +1,10 @@
 # /// script
 # dependencies = [
 #   "torch",
-#  "transformers",
+#   "transformers",
 #   "datasets",
-# "matplotlib"
+#   "matplotlib",
+#   "scikit-learn"
 # ]
 # ///
 
@@ -13,6 +14,7 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 from transformers import BertTokenizer, BertModel
 from datasets import load_dataset
+from sklearn.model_selection import train_test_split
 
 # --------------------
 # ✅ Device setup (MPS on Mac)
@@ -35,7 +37,7 @@ print("✅ BERT is ready.")
 # --------------------
 print("📄 Loading TruthfulQA (multiple_choice)...")
 dataset = load_dataset("truthful_qa", "multiple_choice")
-data = dataset["validation"]  # or use "train"
+data = dataset["validation"]
 print(f"✅ Loaded {len(data)} entries from TruthfulQA.")
 
 # --------------------
@@ -61,13 +63,19 @@ for row in data:
 
 print(f"✅ Prepared {len(examples)} labeled examples for probing.")
 
-# Optional: trim for speed
-# examples = examples[:200]  # Try 1000+ when ready
+# --------------------
+# ✅ Split into train/test sets
+# --------------------
+print("🧪 Splitting into train/test sets...")
+train_examples, test_examples = train_test_split(
+    examples, test_size=0.2, random_state=42, shuffle=True
+)
+print(f"→ Train: {len(train_examples)} examples")
+print(f"→ Test: {len(test_examples)} examples")
 
 # --------------------
-# ✅ Extract hidden states for each example
+# ✅ Extract hidden states for train/test separately
 # --------------------
-print("🔍 Extracting [CLS] embeddings from each BERT layer...")
 
 
 def get_hidden_states(examples):
@@ -77,7 +85,7 @@ def get_hidden_states(examples):
     for i, ex in enumerate(examples):
         if i % 50 == 0:
             print(f"    → Processing example {i+1}/{len(examples)}")
-            print(f"      ↳ Text: {ex['text']}")
+            print(f"      ↳ Text: {ex['text']} | Label: {ex['label']}")
 
         inputs = tokenizer(ex['text'], return_tensors='pt',
                            truncation=True, max_length=128)
@@ -100,7 +108,10 @@ def get_hidden_states(examples):
     return all_hidden_states, labels
 
 
-hidden_states_tensor, labels_tensor = get_hidden_states(examples)
+print("🔍 Extracting embeddings for TRAIN set...")
+train_hidden_states, train_labels = get_hidden_states(train_examples)
+print("🔍 Extracting embeddings for TEST set...")
+test_hidden_states, test_labels = get_hidden_states(test_examples)
 
 # --------------------
 # ✅ Define Linear Probe
@@ -136,27 +147,29 @@ def train_probe(features, labels, epochs=100, lr=1e-2):
 
 
 # --------------------
-# ✅ Train & evaluate across all BERT layers
+# ✅ Train & evaluate across all BERT layers (on test set)
 # --------------------
-print("🚀 Training linear probes layer by layer...")
+print("🚀 Training linear probes on TRAIN and evaluating on TEST...")
 probes = []
 accuracies = []
 
 for layer in range(13):
-    feats = hidden_states_tensor[:, layer, :]  # [N, 768]
-    lbls = labels_tensor
+    train_feats = train_hidden_states[:, layer, :]
+    test_feats = test_hidden_states[:, layer, :]
+    train_lbls = train_labels
+    test_lbls = test_labels
 
     print(f"\n🧪 Training probe on layer {layer}...")
-    probe, loss = train_probe(feats, lbls)
-    print(f"    ↳ Final loss: {loss:.4f}")
+    probe, loss = train_probe(train_feats, train_lbls)
+    print(f"    ↳ Final train loss: {loss:.4f}")
 
     with torch.no_grad():
-        preds = (probe(feats) > 0.5).long()
-        acc = (preds == lbls).float().mean().item()
+        preds = (probe(test_feats) > 0.5).long()
+        acc = (preds == test_lbls).float().mean().item()
         accuracies.append(acc)
         probes.append(probe)
 
-    print(f"    ✅ Accuracy on layer {layer}: {acc:.3f}")
+    print(f"    ✅ Test accuracy on layer {layer}: {acc:.3f}")
 
 # --------------------
 # ✅ Plot Accuracy vs. BERT Layer
