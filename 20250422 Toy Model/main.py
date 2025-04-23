@@ -28,6 +28,8 @@ dataset_source = "truthfulqa"  # 'truthfulqa' or 'boolq' or 'both'
 # ✅ Model config
 bert_model_name = "bert-large-uncased"  # or "bert-base-uncased"
 
+use_control_tasks = True
+
 # --------------------
 # ✅ Device setup (MPS on Mac)
 # --------------------
@@ -171,8 +173,10 @@ def train_probe(features, labels, epochs=100, lr=1e-2):
 print("🚀 Training linear probes on TRAIN and evaluating on TEST...")
 probes = []
 accuracies = []
+control_accuracies = []
+selectivities = []
 
-for layer in range(model.config.num_hidden_layers + 1):  # 25 for BERT-large
+for layer in range(model.config.num_hidden_layers + 1):
     train_feats = train_hidden_states[:, layer, :]
     test_feats = test_hidden_states[:, layer, :]
     train_lbls = train_labels
@@ -180,15 +184,29 @@ for layer in range(model.config.num_hidden_layers + 1):  # 25 for BERT-large
 
     print(f"\n🧪 Training probe on layer {layer}...")
     probe, loss = train_probe(train_feats, train_lbls)
-    print(f"    ↳ Final train loss: {loss:.4f}")
+    probes.append(probe)
 
     with torch.no_grad():
         preds = (probe(test_feats) > 0.5).long()
         acc = (preds == test_lbls).float().mean().item()
         accuracies.append(acc)
-        probes.append(probe)
+    print(f"    ✅ Test accuracy: {acc:.3f}")
 
-    print(f"    ✅ Test accuracy on layer {layer}: {acc:.3f}")
+    # 🎲 Control task: shuffle train labels
+    if use_control_tasks:
+        shuffled_labels = train_lbls[torch.randperm(train_lbls.size(0))]
+        ctrl_probe, _ = train_probe(train_feats, shuffled_labels)
+
+        with torch.no_grad():
+            ctrl_preds = (ctrl_probe(test_feats) > 0.5).long()
+            ctrl_acc = (ctrl_preds == test_lbls).float().mean().item()
+            control_accuracies.append(ctrl_acc)
+
+            selectivity = acc - ctrl_acc
+            selectivities.append(selectivity)
+
+        print(f"    🎲 Control accuracy: {ctrl_acc:.3f}")
+        print(f"    📊 Selectivity: {selectivity:.3f}")
 
 # --------------------
 # ✅ Plot Accuracy vs. BERT Layer
@@ -204,6 +222,19 @@ plt.tight_layout()
 plt.savefig("output.png")  # 💾 Save the plot
 plt.show()
 print("✅ Plot saved as output.png")
+
+if use_control_tasks:
+    plt.figure(figsize=(8, 5))
+    plt.plot(range(len(selectivities)), selectivities,
+             marker='o', label="Selectivity")
+    plt.title(f"Selectivity per BERT Layer ({model.config.name_or_path})")
+    plt.xlabel("Layer")
+    plt.ylabel("Selectivity = Real Acc - Control Acc")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig("selectivity_by_layer.png")
+    plt.show()
+    print("✅ Saved selectivity_by_layer.png")
 
 
 # # --------------------
