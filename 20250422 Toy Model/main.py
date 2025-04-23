@@ -8,6 +8,7 @@
 # ]
 # ///
 
+from sklearn.linear_model import LogisticRegression
 import math
 from sklearn.manifold import TSNE
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
@@ -29,6 +30,14 @@ dataset_source = "truthfulqa"  # 'truthfulqa' or 'boolq' or 'both'
 bert_model_name = "bert-large-uncased"  # or "bert-base-uncased"
 
 use_control_tasks = True
+
+
+use_dropout = True
+dropout_rate = 0.2
+use_weight_decay = True
+weight_decay_value = 1e-4
+# Set to True to use sklearn's LogisticRegression instead of torch Linear
+use_sklearn_logreg = True
 
 # --------------------
 # ✅ Device setup (MPS on Mac)
@@ -142,29 +151,41 @@ test_hidden_states, test_labels = get_hidden_states(test_examples)
 class LinearProbe(nn.Module):
     def __init__(self, dim):
         super().__init__()
+        self.dropout = nn.Dropout(
+            dropout_rate) if use_dropout else nn.Identity()
         self.linear = nn.Linear(dim, 1)
 
     def forward(self, x):
+        x = self.dropout(x)
         return torch.sigmoid(self.linear(x)).squeeze(-1)
-
 # --------------------
 # ✅ Train linear probe on one layer
 # --------------------
 
 
 def train_probe(features, labels, epochs=100, lr=1e-2):
-    probe = LinearProbe(features.shape[1]).to(device)
-    criterion = nn.BCELoss()
-    optimizer = optim.Adam(probe.parameters(), lr=lr)
+    if use_sklearn_logreg:
+        # Features must be on CPU
+        clf = LogisticRegression(max_iter=1000)
+        clf.fit(features.cpu().numpy(), labels.cpu().numpy())
+        return clf, None  # loss is not returned for sklearn
+    else:
+        probe = LinearProbe(features.shape[1]).to(device)
+        criterion = nn.BCELoss()
+        optimizer = optim.Adam(
+            probe.parameters(),
+            lr=lr,
+            weight_decay=weight_decay_value if use_weight_decay else 0.0
+        )
 
-    for epoch in range(epochs):
-        optimizer.zero_grad()
-        outputs = probe(features)
-        loss = criterion(outputs, labels.float())
-        loss.backward()
-        optimizer.step()
+        for epoch in range(epochs):
+            optimizer.zero_grad()
+            outputs = probe(features)
+            loss = criterion(outputs, labels.float())
+            loss.backward()
+            optimizer.step()
 
-    return probe, loss.item()
+        return probe, loss.item()
 
 
 # --------------------
