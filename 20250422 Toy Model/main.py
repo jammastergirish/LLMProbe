@@ -8,6 +8,7 @@
 # ]
 # ///
 
+from sklearn.manifold import TSNE
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 from sklearn.decomposition import PCA
 import torch
@@ -200,48 +201,139 @@ plt.show()
 print("✅ Plot saved as output.png")
 
 
-# --------------------
-# ✅ Visualize CLS embeddings at best layer (e.g., 10)
-# --------------------
-layer = 9
+# # --------------------
+# # ✅ PCA and confusion plots for all layers
+# # --------------------
+# print("🌀 Generating PCA + confusion matrix plots for all 13 layers...")
 
-print(f"🔬 Running PCA to visualize CLS embeddings at Layer {layer}...")
-layer_to_visualize = layer
-features_2d = PCA(n_components=2).fit_transform(
-    test_hidden_states[:, layer_to_visualize, :].cpu().numpy())
-labels_np = test_labels.cpu().numpy()
+# fig, axs = plt.subplots(3, 5, figsize=(20, 12))
+# axs = axs.flatten()
 
-plt.figure(figsize=(8, 6))
-plt.scatter(features_2d[labels_np == 1][:, 0], features_2d[labels_np == 1]
-            [:, 1], label="True", alpha=0.6, color='green')
-plt.scatter(features_2d[labels_np == 0][:, 0], features_2d[labels_np == 0]
-            [:, 1], label="False", alpha=0.6, color='red')
-plt.legend()
-plt.title(f"PCA of CLS embeddings at Layer {layer_to_visualize}")
-plt.xlabel("PC 1")
-plt.ylabel("PC 2")
+# for layer in range(13):
+#     feats = test_hidden_states[:, layer, :].cpu().numpy()
+#     lbls = test_labels.cpu().numpy()
+
+#     # PCA
+#     pca = PCA(n_components=2)
+#     feats_2d = pca.fit_transform(feats)
+
+#     # Probing predictions
+#     probe = probes[layer]
+#     with torch.no_grad():
+#         preds = (probe(torch.tensor(feats).to(device))
+#                  > 0.5).long().cpu().numpy()
+
+#     acc = (preds == lbls).mean()
+
+#     ax = axs[layer]
+#     ax.scatter(feats_2d[lbls == 1][:, 0], feats_2d[lbls == 1]
+#                [:, 1], color='green', alpha=0.6, label="True", s=10)
+#     ax.scatter(feats_2d[lbls == 0][:, 0], feats_2d[lbls == 0]
+#                [:, 1], color='red', alpha=0.6, label="False", s=10)
+#     ax.set_title(f"Layer {layer} (Acc={acc:.2f})")
+#     ax.set_xticks([])
+#     ax.set_yticks([])
+
+# plt.tight_layout()
+# plt.suptitle("PCA of CLS embeddings by BERT Layer", fontsize=16, y=1.02)
+# plt.savefig("layerwise_pca_grid.png")
+# plt.show()
+# print("✅ Saved as layerwise_pca_grid.png")
+
+
+# layer_to_visualize = 10  # Try other layers too if you want
+# features = test_hidden_states[:, layer_to_visualize, :].cpu().numpy()
+# labels_np = test_labels.cpu().numpy()
+
+# print(f"🔍 Running t-SNE on CLS embeddings from layer {layer_to_visualize}...")
+
+# tsne = TSNE(n_components=2, perplexity=30, learning_rate=200, random_state=42)
+# features_2d = tsne.fit_transform(features)
+
+# plt.figure(figsize=(8, 6))
+# plt.scatter(features_2d[labels_np == 1][:, 0], features_2d[labels_np == 1]
+#             [:, 1], label="True", alpha=0.6, color='green')
+# plt.scatter(features_2d[labels_np == 0][:, 0], features_2d[labels_np == 0]
+#             [:, 1], label="False", alpha=0.6, color='red')
+# plt.legend()
+# plt.title(f"t-SNE of CLS Embeddings (Layer {layer_to_visualize})")
+# plt.tight_layout()
+# plt.savefig("tsne_layer10.png")
+# plt.show()
+# print("✅ Saved t-SNE plot as tsne_layer10.png")
+
+print("📈 Generating truth direction projection histograms for all layers...")
+
+fig, axs = plt.subplots(4, 4, figsize=(20, 16))
+axs = axs.flatten()
+
+for layer in range(13):
+    feats = test_hidden_states[:, layer, :]
+    lbls = test_labels
+
+    probe = probes[layer]
+    with torch.no_grad():
+        projection = torch.matmul(feats, probe.linear.weight[0])  # shape: [N]
+
+    ax = axs[layer]
+    ax.hist(projection[lbls == 1].cpu(), bins=30,
+            alpha=0.6, label="True", color='green')
+    ax.hist(projection[lbls == 0].cpu(), bins=30,
+            alpha=0.6, label="False", color='red')
+    ax.set_title(f"Layer {layer}")
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+axs[13].legend()
+axs[13].axis('off')
+plt.tight_layout()
+plt.suptitle("Projection onto Truth Direction per Layer", fontsize=20, y=1.02)
+plt.savefig("truth_projection_grid.png")
+plt.show()
+print("✅ Saved truth_projection_grid.png")
+
+# ----
+
+
+print("🧪 Running causal interventions...")
+
+layer = 10
+feats = test_hidden_states[:, layer, :]
+lbls = test_labels
+
+# Find a true and false example
+i_false = (lbls == 0).nonzero(as_tuple=True)[0][0]
+i_true = (lbls == 1).nonzero(as_tuple=True)[0][0]
+
+x_false = feats[i_false]
+x_true = feats[i_true]
+
+probe = probes[layer]
+
+with torch.no_grad():
+    original_score = probe(x_false.unsqueeze(0)).item()
+    injected_score = probe(x_true.unsqueeze(0)).item()
+    print(f"Original (false) score:  {original_score:.4f}")
+    print(f"Injected (true) score:   {injected_score:.4f}")
+
+    # Interpolate
+    alphas = torch.linspace(0, 1, steps=20)
+    scores = []
+    for alpha in alphas:
+        x_mix = (1 - alpha) * x_false + alpha * x_true
+        score = probe(x_mix.unsqueeze(0)).item()
+        scores.append(score)
+
+# Plot
+plt.figure(figsize=(6, 4))
+plt.plot(alphas.cpu().numpy(), scores)
+plt.xlabel("Truth Injection (alpha)")
+plt.ylabel("Probe Score")
+plt.title("Interpolated Causal Injection into False Embedding")
 plt.grid(True)
 plt.tight_layout()
-plt.savefig("pca_visualization.png")
+plt.savefig("causal_intervention_curve.png")
 plt.show()
-print("✅ Saved PCA plot as pca_visualization.png")
-
-# --------------------
-# ✅ Confusion Matrix for same layer
-# --------------------
-print("🧪 Computing confusion matrix for Layer {layer}...")
-probe = probes[layer_to_visualize]
-with torch.no_grad():
-    preds = (probe(test_hidden_states[:, layer_to_visualize, :]) > 0.5).long()
-
-cm = confusion_matrix(labels_np, preds.cpu().numpy())
-disp = ConfusionMatrixDisplay(
-    confusion_matrix=cm, display_labels=["False", "True"])
-disp.plot(cmap="Blues")
-plt.title(f"Confusion Matrix (Layer {layer_to_visualize})")
-plt.tight_layout()
-plt.savefig("confusion_matrix.png")
-plt.show()
-print("✅ Saved confusion matrix as confusion_matrix.png")
+print("✅ Saved causal_intervention_curve.png")
 
 print("✅ Done!")
