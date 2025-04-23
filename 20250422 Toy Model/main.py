@@ -23,7 +23,7 @@ from sklearn.model_selection import train_test_split
 # --------------------
 # ✅ Choose dataset source: 'truthfulqa', 'boolq', or 'both'
 # --------------------
-dataset_source = "truthfulqa"  # 'truthfulqa' or 'boolq' or 'both'
+dataset_source = "truefalse"  # options: "truthfulqa", "boolq", "truefalse", or "all"
 
 # ✅ Model config
 bert_model_name = "bert-large-uncased"  # or "bert-base-uncased"
@@ -54,7 +54,7 @@ print(f"📄 Loading dataset: {dataset_source.upper()}")
 
 examples = []
 
-if dataset_source in ["truthfulqa", "both"]:
+if dataset_source in ["truthfulqa", "all"]:
     print("📥 Loading TruthfulQA (multiple_choice)...")
     tq = load_dataset("truthful_qa", "multiple_choice")["validation"]
 
@@ -68,7 +68,7 @@ if dataset_source in ["truthfulqa", "both"]:
 
     print(f"✅ TruthfulQA: {len(examples)} total QA-label pairs so far.")
 
-if dataset_source in ["boolq", "both"]:
+if dataset_source in ["boolq", "all"]:
     print("📥 Loading BOOLQ...")
     bq = load_dataset("boolq")["train"]
 
@@ -79,6 +79,25 @@ if dataset_source in ["boolq", "both"]:
         examples.append({"text": f"{question} {passage}", "label": label})
 
     print(f"✅ BOOLQ added. Total examples now: {len(examples)}")
+
+if dataset_source in ["truefalse", "all"]:
+    from datasets import concatenate_datasets
+
+    print("📥 Loading TRUEFALSE (pminervini/true-false)...")
+    tf_splits = ["animals", "cities", "companies", "cieacf",
+                "inventions", "facts", "elements", "generated"]
+
+    datasets_list = []
+    for split in tf_splits:
+        split_ds = load_dataset("pminervini/true-false", split=split)
+        datasets_list.append(split_ds)
+
+    tf = concatenate_datasets(datasets_list)
+
+    for row in tf:
+        examples.append({"text": row["statement"], "label": row["label"]})
+
+    print(f"✅ TRUEFALSE added. Total examples now: {len(examples)}")
 
 print(f"✅ Prepared {len(examples)} labeled examples for probing.")
 
@@ -331,7 +350,6 @@ print("✅ Saved truth_projection_grid.png")
 
 # ----
 
-
 print("🧪 Running causal interventions...")
 
 layer = 10
@@ -346,31 +364,26 @@ x_false = feats[i_false]
 x_true = feats[i_true]
 
 probe = probes[layer]
+weight_vector = probe.linear.weight[0].detach()
 
-with torch.no_grad():
-    original_score = probe(x_false.unsqueeze(0)).item()
-    injected_score = probe(x_true.unsqueeze(0)).item()
-    print(f"Original (false) score:  {original_score:.4f}")
-    print(f"Injected (true) score:   {injected_score:.4f}")
-
-    # Interpolate
-    alphas = torch.linspace(0, 1, steps=20)
-    scores = []
-    for alpha in alphas:
-        x_mix = (1 - alpha) * x_false + alpha * x_true
-        score = probe(x_mix.unsqueeze(0)).item()
-        scores.append(score)
+# Interpolate and project
+alphas = torch.linspace(0, 1, steps=20)
+scores = []
+for alpha in alphas:
+    x_mix = (1 - alpha) * x_false + alpha * x_true
+    projection = torch.dot(x_mix, weight_vector).item()
+    scores.append(projection)
 
 # Plot
 plt.figure(figsize=(6, 4))
 plt.plot(alphas.cpu().numpy(), scores)
 plt.xlabel("Truth Injection (alpha)")
-plt.ylabel("Probe Score")
-plt.title("Interpolated Causal Injection into False Embedding")
+plt.ylabel("Dot Product with Truth Direction")
+plt.title("Interpolated Projection onto Truth Direction")
 plt.grid(True)
 plt.tight_layout()
-plt.savefig("causal_intervention_curve.png")
+plt.savefig("causal_intervention_projection.png")
 plt.show()
-print("✅ Saved causal_intervention_curve.png")
+print("✅ Saved causal_intervention_projection.png")
 
 print("✅ Done!")
