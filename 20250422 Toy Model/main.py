@@ -84,8 +84,16 @@ if dataset_source in ["truefalse", "all"]:
     from datasets import concatenate_datasets
 
     print("📥 Loading TRUEFALSE (pminervini/true-false)...")
-    tf_splits = ["animals", "cities", "companies", "cieacf",
-                "inventions", "facts", "elements", "generated"]
+    tf_splits = [
+        # "animals",
+        "cities",
+        # "companies",
+        # "cieacf",
+        "inventions",
+        "facts",
+        # "elements",
+        # "generated"
+    ]
 
     datasets_list = []
     for split in tf_splits:
@@ -121,7 +129,7 @@ def get_hidden_states(examples, return_layer=None):
     labels = []
 
     for i, ex in enumerate(examples):
-        if i % 50 == 0:
+        if i % 100 == 0:
             print(f"    → Processing example {i+1}/{len(examples)}")
             print(f"      ↳ Text: {ex['text']} | Label: {ex['label']}")
 
@@ -256,44 +264,52 @@ if use_control_tasks:
     print("✅ Saved selectivity_by_layer.png")
 
 
-# # --------------------
-# # ✅ PCA and confusion plots for all layers
-# # --------------------
-# print("🌀 Generating PCA + confusion matrix plots for all 13 layers...")
+# --------------------
+# ✅ PCA and confusion plots for all layers
+# --------------------
+print("🌀 Generating PCA + confusion matrix plots for all 13 layers...")
 
-# fig, axs = plt.subplots(3, 5, figsize=(20, 12))
-# axs = axs.flatten()
 
-# for layer in range(model.config.num_hidden_layers + 1):  # 25 for BERT-large
-#     feats = test_hidden_states[:, layer, :].cpu().numpy()
-#     lbls = test_labels.cpu().numpy()
+num_layers = model.config.num_hidden_layers + 1  # e.g. 25 for BERT-large
+cols = math.ceil(math.sqrt(num_layers))
+rows = math.ceil(num_layers / cols)
 
-#     # PCA
-#     pca = PCA(n_components=2)
-#     feats_2d = pca.fit_transform(feats)
+fig, axs = plt.subplots(rows, cols, figsize=(cols * 4, rows * 3.5))
+axs = axs.flatten()
 
-#     # Probing predictions
-#     probe = probes[layer]
-#     with torch.no_grad():
-#         preds = (probe(torch.tensor(feats).to(device))
-#                  > 0.5).long().cpu().numpy()
+for layer in range(num_layers):  # 25 for BERT-large
+    feats = test_hidden_states[:, layer, :].cpu().numpy()
+    lbls = test_labels.cpu().numpy()
 
-#     acc = (preds == lbls).mean()
+    # PCA
+    pca = PCA(n_components=2)
+    feats_2d = pca.fit_transform(feats)
 
-#     ax = axs[layer]
-#     ax.scatter(feats_2d[lbls == 1][:, 0], feats_2d[lbls == 1]
-#                [:, 1], color='green', alpha=0.6, label="True", s=10)
-#     ax.scatter(feats_2d[lbls == 0][:, 0], feats_2d[lbls == 0]
-#                [:, 1], color='red', alpha=0.6, label="False", s=10)
-#     ax.set_title(f"Layer {layer} (Acc={acc:.2f})")
-#     ax.set_xticks([])
-#     ax.set_yticks([])
+    # Probing predictions
+    probe = probes[layer]
+    with torch.no_grad():
+        preds = (probe(torch.tensor(feats).to(device))
+                 > 0.5).long().cpu().numpy()
 
-# plt.tight_layout()
-# plt.suptitle("PCA of CLS embeddings by BERT Layer", fontsize=16, y=1.02)
-# plt.savefig("layerwise_pca_grid.png")
-# plt.show()
-# print("✅ Saved as layerwise_pca_grid.png")
+    acc = (preds == lbls).mean()
+
+    ax = axs[layer]
+    ax.scatter(feats_2d[lbls == 1][:, 0], feats_2d[lbls == 1]
+               [:, 1], color='green', alpha=0.6, label="True", s=10)
+    ax.scatter(feats_2d[lbls == 0][:, 0], feats_2d[lbls == 0]
+               [:, 1], color='red', alpha=0.6, label="False", s=10)
+    ax.set_title(f"Layer {layer} (Acc={acc:.2f})")
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    if layer >= len(axs):
+        break
+
+plt.tight_layout()
+plt.suptitle("PCA of CLS embeddings by BERT Layer", fontsize=16, y=1.02)
+plt.savefig("layerwise_pca_grid.png")
+plt.show()
+print("✅ Saved as layerwise_pca_grid.png")
 
 
 # layer_to_visualize = 10  # Try other layers too if you want
@@ -349,7 +365,6 @@ plt.show()
 print("✅ Saved truth_projection_grid.png")
 
 # ----
-
 print("🧪 Running causal interventions...")
 
 layer = 10
@@ -371,8 +386,13 @@ alphas = torch.linspace(0, 1, steps=20)
 scores = []
 for alpha in alphas:
     x_mix = (1 - alpha) * x_false + alpha * x_true
-    projection = torch.dot(x_mix, weight_vector).item()
-    scores.append(projection)
+    projection = torch.dot(x_mix, weight_vector)
+    score = torch.sigmoid(projection).item()
+    scores.append(score)
+
+# OPTIONAL: Flip direction if projections decrease with alpha
+if scores[-1] < scores[0]:
+    scores = [-s for s in scores]
 
 # Plot
 plt.figure(figsize=(6, 4))
