@@ -8,7 +8,8 @@
 #   "protobuf",
 #   "tiktoken",
 #   "blobfile",
-#  "accelerate"
+#  "accelerate",
+# "transformer-lens"
 # ]
 # ///
 
@@ -25,6 +26,8 @@ from transformers import AutoTokenizer, AutoModel
 from datasets import load_dataset
 from sklearn.model_selection import train_test_split
 import random
+import transformer_lens
+from transformer_lens import HookedTransformer
 
 # --------------------
 # ✅ Dataset source
@@ -39,8 +42,8 @@ model_name = "bert-base-uncased"
 # model_name = "bert-large-uncased" 
 # model_name = 'roberta-base'
 # model_name = 'gpt2'
-model_name = 'meta-llama/Llama-3.2-1B-Instruct'
-model_name = 'meta-llama/Llama-3.2-1B'
+# model_name = 'meta-llama/Llama-3.2-1B-Instruct'
+# model_name = 'meta-llama/Llama-3.2-1B'
 # model_name = 'meta-llama/Llama-3.2-3B-Instruct-SpinQuant_INT4_EO8'
 # model_name = "mistralai/Mistral-7B-v0.1"
 # model_name = "deepseek-ai/DeepSeek-V3-Base"
@@ -55,29 +58,57 @@ use_control_tasks = True
 device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
 print(f"🖥️  Using {device}")
 
+
+def is_decoder_only_model(model_name):
+    decoder_keywords = ["gpt", "llama", "mistral", "pythia", "deepseek"]
+    return any(keyword in model_name.lower() for keyword in decoder_keywords)
+
+
+def get_num_layers(model):
+    if hasattr(model, "config") and hasattr(model.config, "num_hidden_layers"):
+        return model.config.num_hidden_layers + 1
+    elif hasattr(model, "cfg") and hasattr(model.cfg, "n_layers"):
+        return model.cfg.n_layers
+    else:
+        raise AttributeError(
+            "Cannot determine number of layers for this model")
+
 # --------------------
 # ✅ Load model and tokenizer
 # --------------------
 
 
 def load_model_and_tokenizer(model_name):
-    if "gpt" in model_name or "llama" in model_name.lower() or "mistral" in model_name.lower() or "deepseek" in model_name.lower():
-        model_class = AutoModelForCausalLM
+    use_transformerlens = is_decoder_only_model(model_name)
+
+    if use_transformerlens:
+        from transformer_lens import HookedTransformer
+        model = HookedTransformer.from_pretrained(model_name, device=device)
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+        # Set tokenizer padding if needed
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.padding_side = "left"
     else:
-        model_class = AutoModel
+        if is_decoder_only_model(model_name):
+            model_class = AutoModelForCausalLM
+        else:
+            model_class = AutoModel
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    tokenizer.padding_side = "left" if "gpt" in model_name.lower() or "llama" in model_name.lower() else "right"
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.padding_side = "left" if is_decoder_only_model(model_name) else "right"
 
-    model = model_class.from_pretrained(model_name, output_hidden_states=True)
+        model = model_class.from_pretrained(
+            model_name, output_hidden_states=True).to(device)
+        model.eval()
+
     return tokenizer, model
 
-tokenizer, model=load_model_and_tokenizer(model_name)
-model.to(device).eval()
-
+tokenizer, model = load_model_and_tokenizer(model_name)
 print(f"✅ {model_name.upper()} is ready.")
 
 # --------------------
@@ -186,13 +217,13 @@ print(f"→ Test: {len(test_examples)} examples")
 # --------------------
 
 
-def get_hidden_states(examples, return_layer=None):
+def get_hidden_states_hf(examples, return_layer=None):
     all_hidden_states = []
     labels = []
 
     for i, ex in enumerate(examples):
         if i % 100 == 0:
-            print(f"    → Processing example {i+1}/{len(examples)}")
+            print(f"    → Processing example with Hugging Face {i+1}/{len(examples)}")
             print(f"      ↳ Text: {ex['text']} | Label: {ex['label']}")
 
         inputs = tokenizer(ex['text'], return_tensors='pt',
@@ -203,21 +234,73 @@ def get_hidden_states(examples, return_layer=None):
             outputs = model(**inputs)
             hidden_states = outputs.hidden_states
 
-        if "gpt" in model_name.lower() or "llama" in model_name.lower():
-            cls_embeddings = torch.stack([layer[:, -1, :] for layer in hidden_states])
+        # Use last token for decoder-only models, first for encoder-only
+        if is_decoder_only_model(model_name):
+            cls_embeddings = torch.stack(
+                [layer[:, -1, :] for layer in hidden_states])
         else:
-            cls_embeddings = torch.stack([layer[:, 0, :] for layer in hidden_states])
+            cls_embeddings = torch.stack(
+                [layer[:, 0, :] for layer in hidden_states])
 
-        all_hidden_states.append(cls_embeddings.squeeze(1))  # [13, 768]
+        # [num_layers, hidden_dim]
+        all_hidden_states.append(cls_embeddings.squeeze(1))
         labels.append(ex['label'])
 
-    all_hidden_states = torch.stack(all_hidden_states).to(device)
+    all_hidden_states = torch.stack(all_hidden_states).to(
+        device)  # [N, num_layers, d_model]
     labels = torch.tensor(labels).to(device)
 
     if return_layer is not None:
-        return all_hidden_states[:, return_layer, :], labels  # (N, 768), (N,)
+        return all_hidden_states[:, return_layer, :], labels  # (N, d_model)
     else:
-        return all_hidden_states, labels  # (N, 13, 768), (N,)
+        return all_hidden_states, labels  # (N, num_layers, d_model)
+
+
+def get_hidden_states_transformerlens(examples, model, model_name, tokenizer, return_layer=None):
+    all_hidden_states = []
+    labels = []
+
+    for i, ex in enumerate(examples):
+        if i % 100 == 0:
+            print(f"    → Processing example with TransformerLens {i+1}/{len(examples)}")
+            print(f"      ↳ Text: {ex['text']} | Label: {ex['label']}")
+
+        tokens = tokenizer.encode(
+            ex["text"], return_tensors="pt").to(model.cfg.device)
+
+        # Run with cache to extract all activations
+        _, cache = model.run_with_cache(tokens)
+
+        # Choose position index (last token for decoder-only, first otherwise)
+        pos = -1 if is_decoder_only_model(model_name) else 0
+
+        # Get post-residual activations from each layer
+        layer_outputs = [
+            cache["resid_post", layer_idx][0, pos, :]  # shape: (d_model,)
+            for layer_idx in range(model.cfg.n_layers)
+        ]
+
+        # Stack into shape: (num_layers, d_model)
+        hidden_stack = torch.stack(layer_outputs)
+        all_hidden_states.append(hidden_stack)
+        labels.append(ex["label"])
+
+    # Shape: (N, L, D)
+    all_hidden_states = torch.stack(all_hidden_states).to(device)
+    labels = torch.tensor(labels).to(device)
+
+    # Allow slicing if return_layer is specified
+    if return_layer is not None:
+        return all_hidden_states[:, return_layer, :], labels  # (N, D)
+    else:
+        return all_hidden_states, labels  # (N, L, D)
+
+
+def get_hidden_states(examples, return_layer=None):
+    if "HookedTransformer" in str(type(model)):
+        return get_hidden_states_transformerlens(examples, model, model_name, tokenizer, return_layer)
+    else:
+        return get_hidden_states_hf(examples, return_layer)
 
 
 print("🔍 Extracting embeddings for TRAIN set...")
@@ -267,7 +350,7 @@ accuracies = []
 control_accuracies = []
 selectivities = []
 
-for layer in range(model.config.num_hidden_layers + 1):
+for layer in range(get_num_layers(model) + 1):
     train_feats = train_hidden_states[:, layer, :]
     test_feats = test_hidden_states[:, layer, :]
     train_lbls = train_labels
@@ -310,9 +393,9 @@ plt.xlabel("Layer")
 plt.ylabel("Accuracy")
 plt.grid(True)
 plt.tight_layout()
-plt.savefig("probe_accuracy_per_layer.png")  # 💾 Save the plot
+plt.savefig(f"{model_name}-{dataset_source}-probe_accuracy_per_layer.png")  # 💾 Save the plot
 plt.show()
-print("✅ Plot saved as output.png")
+print("✅ Plot saved")
 
 if use_control_tasks:
     plt.figure(figsize=(8, 5))
@@ -334,14 +417,13 @@ if use_control_tasks:
 print("🌀 Generating PCA + confusion matrix plots for all 13 layers...")
 
 
-num_layers = model.config.num_hidden_layers + 1  # e.g. 25 for BERT-large
 cols = math.ceil(math.sqrt(num_layers))
 rows = math.ceil(num_layers / cols)
 
 fig, axs = plt.subplots(rows, cols, figsize=(cols * 4, rows * 3.5))
 axs = axs.flatten()
 
-for layer in range(num_layers):  # 25 for BERT-large
+for layer in range(get_num_layers(model) + 1):  # 25 for BERT-large
     feats = test_hidden_states[:, layer, :].cpu().numpy()
     lbls = test_labels.cpu().numpy()
 
@@ -371,7 +453,7 @@ for layer in range(num_layers):  # 25 for BERT-large
 
 plt.tight_layout()
 plt.suptitle("PCA of CLS embeddings by BERT Layer", fontsize=16, y=1.02)
-plt.savefig("layerwise_pca_grid.png")
+plt.savefig(f"{model_name}-{dataset_source}-layerwise_pca_grid.png")
 plt.show()
 print("✅ Saved as layerwise_pca_grid.png")
 
@@ -393,17 +475,17 @@ print("✅ Saved as layerwise_pca_grid.png")
 # plt.legend()
 # plt.title(f"t-SNE of CLS Embeddings (Layer {layer_to_visualize})")
 # plt.tight_layout()
-# plt.savefig("tsne_layer10.png")
+# plt.savefig(f"{model_name}-{dataset_source}-tsne_layer10.png")
 # plt.show()
 # print("✅ Saved t-SNE plot as tsne_layer10.png")
 
 print("📈 Generating truth direction projection histograms for all layers...")
 
-rows = cols = math.ceil((model.config.num_hidden_layers + 1) ** 0.5)
+rows = cols = math.ceil((get_num_layers(model) + 1) ** 0.5)
 fig, axs = plt.subplots(rows, cols, figsize=(cols * 4, rows * 3.5))
 axs = axs.flatten()
 
-for layer in range(model.config.num_hidden_layers + 1):
+for layer in range(get_num_layers(model) + 1):
     feats = test_hidden_states[:, layer, :]
     lbls = test_labels
 
@@ -424,7 +506,7 @@ axs[13].legend()
 axs[13].axis('off')
 plt.tight_layout()
 plt.suptitle("Projection onto Truth Direction per Layer", fontsize=20, y=1.02)
-plt.savefig("truth_projection_grid.png")
+plt.savefig(f"{model_name}-{dataset_source}-truth_projection_grid.png")
 plt.show()
 print("✅ Saved truth_projection_grid.png")
 
@@ -466,7 +548,7 @@ print("✅ Saved truth_projection_grid.png")
 # plt.title("Interpolated Projection onto Truth Direction")
 # plt.grid(True)
 # plt.tight_layout()
-# plt.savefig("causal_intervention_projection.png")
+# plt.savefig(f"{model_name}-{dataset_source}-causal_intervention_projection.png")
 # plt.show()
 # print("✅ Saved causal_intervention_projection.png")
 
