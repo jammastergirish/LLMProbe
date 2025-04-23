@@ -38,17 +38,17 @@ dataset_source = "truefalse"
 # --------------------
 # ✅ Model selection
 # --------------------
-model_name = "bert-base-uncased" 
+# model_name = "bert-base-uncased" 
 # model_name = "bert-large-uncased" 
 # model_name = 'roberta-base'
 # model_name = 'gpt2'
-# model_name = 'meta-llama/Llama-3.2-1B-Instruct'
+model_name = 'meta-llama/Llama-3.2-1B-Instruct'
 # model_name = 'meta-llama/Llama-3.2-1B'
 # model_name = 'meta-llama/Llama-3.2-3B-Instruct-SpinQuant_INT4_EO8'
 # model_name = "mistralai/Mistral-7B-v0.1"
 # model_name = "deepseek-ai/DeepSeek-V3-Base"
 # model_name = "deepseek-ai/DeepSeek-R1-Distill-Llama-70B"
-# model_name = "meta-llama/Llama-4-Maverick-17B-128E-Instruct"
+# model_name = "meta-llama/Llama-4-Scout-17B-16E-Instruct-Original"
 
 use_control_tasks = True
 
@@ -142,7 +142,7 @@ print(f"📄 Loading dataset: {dataset_source.upper()}")
 examples = []
 
 if dataset_source in ["truthfulqa", "all"]:
-    print("📥 Loading TruthfulQA (multiple_choice)...")
+    print("\t📥 Loading TruthfulQA (multiple_choice)...")
     tq = load_dataset("truthful_qa", "multiple_choice")["validation"]
 
     for row in tq:
@@ -156,7 +156,7 @@ if dataset_source in ["truthfulqa", "all"]:
     print(f"✅ TruthfulQA: {len(examples)} total QA-label pairs so far.")
 
 if dataset_source in ["boolq", "all"]:
-    print("📥 Loading BOOLQ...")
+    print("\t📥 Loading BOOLQ...")
     bq = load_dataset("boolq")["train"]
 
     for row in bq:
@@ -170,7 +170,7 @@ if dataset_source in ["boolq", "all"]:
 if dataset_source in ["truefalse", "all"]:
     from datasets import concatenate_datasets
 
-    print("📥 Loading TRUEFALSE (pminervini/true-false)...")
+    print("\t📥 Loading TRUEFALSE (pminervini/true-false)...")
     tf_splits = [
         "animals",
         "cities",
@@ -195,7 +195,7 @@ if dataset_source in ["truefalse", "all"]:
     print(f"✅ TRUEFALSE added. Total examples now: {len(examples)}")
 
 if dataset_source in ["arithmetic", "all"]:
-    print("📐 Generating ARITHMETIC dataset...")
+    print("\t📐 Generating ARITHMETIC dataset...")
     arithmetic = generate_arithmetic_dataset(5000)
     examples.extend(arithmetic)
     print(f"✅ Arithmetic dataset added. Total examples now: {len(examples)}")
@@ -342,7 +342,7 @@ def train_probe(features, labels, epochs=100, lr=1e-2):
 
 
 # --------------------
-# ✅ Train & evaluate across all BERT layers (on test set)
+# ✅ Train & evaluate across all layers (on test set)
 # --------------------
 print("🚀 Training linear probes on TRAIN and evaluating on TEST...")
 probes = []
@@ -350,7 +350,8 @@ accuracies = []
 control_accuracies = []
 selectivities = []
 
-for layer in range(get_num_layers(model) + 1):
+num_layers = get_num_layers(model)
+for layer in range(num_layers):
     train_feats = train_hidden_states[:, layer, :]
     test_feats = test_hidden_states[:, layer, :]
     train_lbls = train_labels
@@ -383,7 +384,7 @@ for layer in range(get_num_layers(model) + 1):
         print(f"    📊 Selectivity: {selectivity:.3f}")
 
 # --------------------
-# ✅ Plot Accuracy vs. BERT Layer
+# ✅ Plot Accuracy vs. Layer
 # --------------------
 print("📊 Plotting accuracy by layer...")
 plt.plot(range(len(accuracies)), accuracies, marker='o')
@@ -401,21 +402,24 @@ if use_control_tasks:
     plt.figure(figsize=(8, 5))
     plt.plot(range(len(selectivities)), selectivities,
              marker='o', label="Selectivity")
-    plt.title(f"Selectivity per BERT Layer ({model.config.name_or_path})")
+    plt.title(f"Selectivity per Layer ({model.config.name_or_path})")
     plt.xlabel("Layer")
     plt.ylabel("Selectivity = Real Acc - Control Acc")
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig("selectivity_by_layer.png")
+    plt.savefig(f"{model_name}-{dataset_source}-selectivity_by_layer.png")
     plt.show()
     print("✅ Saved selectivity_by_layer.png")
 
 
+#
 # --------------------
 # ✅ PCA and confusion plots for all layers
 # --------------------
-print("🌀 Generating PCA + confusion matrix plots for all 13 layers...")
+print("🌀 Generating PCA + confusion matrix plots for all layers...")
 
+# Set num_layers for later use
+num_layers = get_num_layers(model)
 
 cols = math.ceil(math.sqrt(num_layers))
 rows = math.ceil(num_layers / cols)
@@ -423,7 +427,7 @@ rows = math.ceil(num_layers / cols)
 fig, axs = plt.subplots(rows, cols, figsize=(cols * 4, rows * 3.5))
 axs = axs.flatten()
 
-for layer in range(get_num_layers(model) + 1):  # 25 for BERT-large
+for layer in range(num_layers):
     feats = test_hidden_states[:, layer, :].cpu().numpy()
     lbls = test_labels.cpu().numpy()
 
@@ -452,7 +456,7 @@ for layer in range(get_num_layers(model) + 1):  # 25 for BERT-large
         break
 
 plt.tight_layout()
-plt.suptitle("PCA of CLS embeddings by BERT Layer", fontsize=16, y=1.02)
+plt.suptitle("PCA of CLS embeddings by Layer", fontsize=16, y=1.02)
 plt.savefig(f"{model_name}-{dataset_source}-layerwise_pca_grid.png")
 plt.show()
 print("✅ Saved as layerwise_pca_grid.png")
@@ -481,11 +485,13 @@ print("✅ Saved as layerwise_pca_grid.png")
 
 print("📈 Generating truth direction projection histograms for all layers...")
 
-rows = cols = math.ceil((get_num_layers(model) + 1) ** 0.5)
+# Set num_layers for histogram section
+num_layers = get_num_layers(model)
+rows = cols = math.ceil(num_layers ** 0.5)
 fig, axs = plt.subplots(rows, cols, figsize=(cols * 4, rows * 3.5))
 axs = axs.flatten()
 
-for layer in range(get_num_layers(model) + 1):
+for layer in range(num_layers):
     feats = test_hidden_states[:, layer, :]
     lbls = test_labels
 
@@ -502,8 +508,9 @@ for layer in range(get_num_layers(model) + 1):
     ax.set_xticks([])
     ax.set_yticks([])
 
-axs[13].legend()
-axs[13].axis('off')
+if num_layers > 0:
+    axs[num_layers-1].legend()
+    axs[num_layers-1].axis('off')
 plt.tight_layout()
 plt.suptitle("Projection onto Truth Direction per Layer", fontsize=20, y=1.02)
 plt.savefig(f"{model_name}-{dataset_source}-truth_projection_grid.png")
