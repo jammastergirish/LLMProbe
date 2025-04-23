@@ -8,6 +8,7 @@
 # ]
 # ///
 
+import math
 from sklearn.manifold import TSNE
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 from sklearn.decomposition import PCA
@@ -24,6 +25,9 @@ from sklearn.model_selection import train_test_split
 # --------------------
 dataset_source = "truthfulqa"  # 'truthfulqa' or 'boolq' or 'both'
 
+# ✅ Model config
+bert_model_name = "bert-base-uncased"  # or "bert-base-uncased"
+
 # --------------------
 # ✅ Device setup (MPS on Mac)
 # --------------------
@@ -34,9 +38,9 @@ print(f"🖥️  Using device: {device}")
 # ✅ Load BERT
 # --------------------
 print("📦 Loading BERT model and tokenizer...")
-tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+tokenizer = BertTokenizer.from_pretrained(bert_model_name)
 model = BertModel.from_pretrained(
-    'bert-base-uncased', output_hidden_states=True).to(device)
+    bert_model_name, output_hidden_states=True).to(device)
 model.eval()
 print("✅ BERT is ready.")
 
@@ -168,7 +172,7 @@ print("🚀 Training linear probes on TRAIN and evaluating on TEST...")
 probes = []
 accuracies = []
 
-for layer in range(13):
+for layer in range(model.config.num_hidden_layers + 1):  # 25 for BERT-large
     train_feats = train_hidden_states[:, layer, :]
     test_feats = test_hidden_states[:, layer, :]
     train_lbls = train_labels
@@ -190,9 +194,10 @@ for layer in range(13):
 # ✅ Plot Accuracy vs. BERT Layer
 # --------------------
 print("📊 Plotting accuracy by layer...")
-plt.plot(range(13), accuracies, marker='o')
-plt.title("Truth Detection Accuracy per BERT Layer (TruthfulQA)")
-plt.xlabel("BERT Layer (0=Embedding, 1-12=Transformer Layers)")
+plt.plot(range(len(accuracies)), accuracies, marker='o')
+plt.title(
+    f"Truth Detection Accuracy per BERT Layer ({model.config.name_or_path})")
+plt.xlabel("BERT Layer (0=Embedding, 1-25=Transformer Layers)")
 plt.ylabel("Accuracy")
 plt.grid(True)
 plt.tight_layout()
@@ -209,7 +214,7 @@ print("✅ Plot saved as output.png")
 # fig, axs = plt.subplots(3, 5, figsize=(20, 12))
 # axs = axs.flatten()
 
-# for layer in range(13):
+# for layer in range(model.config.num_hidden_layers + 1):  # 25 for BERT-large
 #     feats = test_hidden_states[:, layer, :].cpu().numpy()
 #     lbls = test_labels.cpu().numpy()
 
@@ -264,10 +269,11 @@ print("✅ Plot saved as output.png")
 
 print("📈 Generating truth direction projection histograms for all layers...")
 
-fig, axs = plt.subplots(4, 4, figsize=(20, 16))
+rows = cols = math.ceil((model.config.num_hidden_layers + 1) ** 0.5)
+fig, axs = plt.subplots(rows, cols, figsize=(cols * 4, rows * 3.5))
 axs = axs.flatten()
 
-for layer in range(13):
+for layer in range(model.config.num_hidden_layers + 1):
     feats = test_hidden_states[:, layer, :]
     lbls = test_labels
 
