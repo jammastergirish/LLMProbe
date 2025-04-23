@@ -8,6 +8,8 @@
 # ]
 # ///
 
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+from sklearn.decomposition import PCA
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -88,7 +90,7 @@ print(f"→ Test: {len(test_examples)} examples")
 # --------------------
 
 
-def get_hidden_states(examples):
+def get_hidden_states(examples, return_layer=None):
     all_hidden_states = []
     labels = []
 
@@ -103,7 +105,7 @@ def get_hidden_states(examples):
 
         with torch.no_grad():
             outputs = model(**inputs)
-            hidden_states = outputs.hidden_states  # Tuple of 13 layers
+            hidden_states = outputs.hidden_states
 
         cls_embeddings = torch.stack([layer[:, 0, :]
                                      # [13, 1, 768]
@@ -113,9 +115,11 @@ def get_hidden_states(examples):
 
     all_hidden_states = torch.stack(all_hidden_states).to(device)
     labels = torch.tensor(labels).to(device)
-    print(
-        f"✅ Shape of hidden_states_tensor: {all_hidden_states.shape} (examples, layers, 768)")
-    return all_hidden_states, labels
+
+    if return_layer is not None:
+        return all_hidden_states[:, return_layer, :], labels  # (N, 768), (N,)
+    else:
+        return all_hidden_states, labels  # (N, 13, 768), (N,)
 
 
 print("🔍 Extracting embeddings for TRAIN set...")
@@ -194,5 +198,50 @@ plt.tight_layout()
 plt.savefig("output.png")  # 💾 Save the plot
 plt.show()
 print("✅ Plot saved as output.png")
+
+
+# --------------------
+# ✅ Visualize CLS embeddings at best layer (e.g., 10)
+# --------------------
+layer = 9
+
+print(f"🔬 Running PCA to visualize CLS embeddings at Layer {layer}...")
+layer_to_visualize = layer
+features_2d = PCA(n_components=2).fit_transform(
+    test_hidden_states[:, layer_to_visualize, :].cpu().numpy())
+labels_np = test_labels.cpu().numpy()
+
+plt.figure(figsize=(8, 6))
+plt.scatter(features_2d[labels_np == 1][:, 0], features_2d[labels_np == 1]
+            [:, 1], label="True", alpha=0.6, color='green')
+plt.scatter(features_2d[labels_np == 0][:, 0], features_2d[labels_np == 0]
+            [:, 1], label="False", alpha=0.6, color='red')
+plt.legend()
+plt.title(f"PCA of CLS embeddings at Layer {layer_to_visualize}")
+plt.xlabel("PC 1")
+plt.ylabel("PC 2")
+plt.grid(True)
+plt.tight_layout()
+plt.savefig("pca_visualization.png")
+plt.show()
+print("✅ Saved PCA plot as pca_visualization.png")
+
+# --------------------
+# ✅ Confusion Matrix for same layer
+# --------------------
+print("🧪 Computing confusion matrix for Layer {layer}...")
+probe = probes[layer_to_visualize]
+with torch.no_grad():
+    preds = (probe(test_hidden_states[:, layer_to_visualize, :]) > 0.5).long()
+
+cm = confusion_matrix(labels_np, preds.cpu().numpy())
+disp = ConfusionMatrixDisplay(
+    confusion_matrix=cm, display_labels=["False", "True"])
+disp.plot(cmap="Blues")
+plt.title(f"Confusion Matrix (Layer {layer_to_visualize})")
+plt.tight_layout()
+plt.savefig("confusion_matrix.png")
+plt.show()
+print("✅ Saved confusion matrix as confusion_matrix.png")
 
 print("✅ Done!")
