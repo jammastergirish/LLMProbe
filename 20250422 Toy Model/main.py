@@ -11,12 +11,12 @@
 import math
 from sklearn.manifold import TSNE
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+from transformers import AutoModel, AutoModelForCausalLM, AutoTokenizer
 from sklearn.decomposition import PCA
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import matplotlib.pyplot as plt
-from transformers import BertTokenizer, BertModel
 from transformers import AutoTokenizer, AutoModel
 from datasets import load_dataset
 from sklearn.model_selection import train_test_split
@@ -29,8 +29,11 @@ import random
 dataset_source = "truefalse"
 
 # ✅ Model config
-model_name = "bert-large-uncased"  # or "bert-base-uncased"
-model_name = 'roberta-base'
+model_name = "bert-base-uncased" 
+# model_name = "bert-large-uncased" 
+# model_name = 'roberta-base'
+# model_name = 'gpt2'
+model_name = 'meta-llama/Llama-3.2-1B-Instruct'
 
 use_control_tasks = True
 
@@ -38,17 +41,32 @@ use_control_tasks = True
 # ✅ Device setup (MPS on Mac)
 # --------------------
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-print(f"🖥️  Using device: {device}")
+print(f"🖥️  Using {device}")
 
 # --------------------
-# ✅ Load BERT
+# ✅ Load model and tokenizer
 # --------------------
-print("📦 Loading model and tokenizer...")
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModel.from_pretrained(
-    model_name, output_hidden_states=True).to(device)
-model.eval()
-print("✅ Model is ready.")
+
+
+def load_model_and_tokenizer(model_name):
+    if "gpt" in model_name or "llama" in model_name.lower():
+        model_class = AutoModelForCausalLM
+    else:
+        model_class = AutoModel
+
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = "left" if "gpt" in model_name.lower() or "llama" in model_name.lower() else "right"
+
+    model = model_class.from_pretrained(model_name, output_hidden_states=True)
+    return tokenizer, model
+
+tokenizer, model=load_model_and_tokenizer(model_name)
+model.to(device).eval()
+
+print(f"✅ {model_name.upper()} is ready.")
 
 # --------------------
 # ✅ Load dataset
@@ -173,9 +191,11 @@ def get_hidden_states(examples, return_layer=None):
             outputs = model(**inputs)
             hidden_states = outputs.hidden_states
 
-        cls_embeddings = torch.stack([layer[:, 0, :]
-                                     # [13, 1, 768]
-                                      for layer in hidden_states])
+        if "gpt" in model_name.lower() or "llama" in model_name.lower():
+            cls_embeddings = torch.stack([layer[:, -1, :] for layer in hidden_states])
+        else:
+            cls_embeddings = torch.stack([layer[:, 0, :] for layer in hidden_states])
+
         all_hidden_states.append(cls_embeddings.squeeze(1))  # [13, 768]
         labels.append(ex['label'])
 
