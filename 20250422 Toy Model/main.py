@@ -4,7 +4,11 @@
 #   "transformers",
 #   "datasets",
 #   "matplotlib",
-#   "scikit-learn"
+#   "scikit-learn",
+#   "protobuf",
+#   "tiktoken",
+#   "blobfile",
+#  "accelerate"
 # ]
 # ///
 
@@ -23,24 +27,32 @@ from sklearn.model_selection import train_test_split
 import random
 
 # --------------------
-# ✅ Choose dataset source: 'truthfulqa', 'boolq', or 'both'
+# ✅ Dataset source
 # --------------------
 # options: "truthfulqa", "boolq", "truefalse", or "all"
 dataset_source = "truefalse"
 
-# ✅ Model config
+# --------------------
+# ✅ Model selection
+# --------------------
 model_name = "bert-base-uncased" 
 # model_name = "bert-large-uncased" 
 # model_name = 'roberta-base'
 # model_name = 'gpt2'
 model_name = 'meta-llama/Llama-3.2-1B-Instruct'
+model_name = 'meta-llama/Llama-3.2-1B'
+# model_name = 'meta-llama/Llama-3.2-3B-Instruct-SpinQuant_INT4_EO8'
+# model_name = "mistralai/Mistral-7B-v0.1"
+# model_name = "deepseek-ai/DeepSeek-V3-Base"
+# model_name = "deepseek-ai/DeepSeek-R1-Distill-Llama-70B"
+# model_name = "meta-llama/Llama-4-Maverick-17B-128E-Instruct"
 
 use_control_tasks = True
 
 # --------------------
-# ✅ Device setup (MPS on Mac)
+# ✅ Device setup (MPS on Mac, CUDA with GPU, etc.)
 # --------------------
-device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
 print(f"🖥️  Using {device}")
 
 # --------------------
@@ -49,7 +61,7 @@ print(f"🖥️  Using {device}")
 
 
 def load_model_and_tokenizer(model_name):
-    if "gpt" in model_name or "llama" in model_name.lower():
+    if "gpt" in model_name or "llama" in model_name.lower() or "mistral" in model_name.lower() or "deepseek" in model_name.lower():
         model_class = AutoModelForCausalLM
     else:
         model_class = AutoModel
@@ -293,12 +305,12 @@ for layer in range(model.config.num_hidden_layers + 1):
 print("📊 Plotting accuracy by layer...")
 plt.plot(range(len(accuracies)), accuracies, marker='o')
 plt.title(
-    f"Truth Detection Accuracy per BERT Layer ({model.config.name_or_path})")
-plt.xlabel("BERT Layer (0=Embedding, 1-25=Transformer Layers)")
+    f"Truth Detection Accuracy per Layer ({model.config.name_or_path})")
+plt.xlabel("Layer")
 plt.ylabel("Accuracy")
 plt.grid(True)
 plt.tight_layout()
-plt.savefig("output.png")  # 💾 Save the plot
+plt.savefig("probe_accuracy_per_layer.png")  # 💾 Save the plot
 plt.show()
 print("✅ Plot saved as output.png")
 
@@ -417,45 +429,45 @@ plt.show()
 print("✅ Saved truth_projection_grid.png")
 
 # ----
-print("🧪 Running causal interventions...")
+# print("🧪 Running causal interventions...")
 
-layer = 10
-feats = test_hidden_states[:, layer, :]
-lbls = test_labels
+# layer = 10
+# feats = test_hidden_states[:, layer, :]
+# lbls = test_labels
 
-# Find a true and false example
-i_false = (lbls == 0).nonzero(as_tuple=True)[0][0]
-i_true = (lbls == 1).nonzero(as_tuple=True)[0][0]
+# # Find a true and false example
+# i_false = (lbls == 0).nonzero(as_tuple=True)[0][0]
+# i_true = (lbls == 1).nonzero(as_tuple=True)[0][0]
 
-x_false = feats[i_false]
-x_true = feats[i_true]
+# x_false = feats[i_false]
+# x_true = feats[i_true]
 
-probe = probes[layer]
-weight_vector = probe.linear.weight[0].detach()
+# probe = probes[layer]
+# weight_vector = probe.linear.weight[0].detach()
 
-# Interpolate and project
-alphas = torch.linspace(0, 1, steps=20)
-scores = []
-for alpha in alphas:
-    x_mix = (1 - alpha) * x_false + alpha * x_true
-    projection = torch.dot(x_mix, weight_vector)
-    score = torch.sigmoid(projection).item()
-    scores.append(score)
+# # Interpolate and project
+# alphas = torch.linspace(0, 1, steps=20)
+# scores = []
+# for alpha in alphas:
+#     x_mix = (1 - alpha) * x_false + alpha * x_true
+#     projection = torch.dot(x_mix, weight_vector)
+#     score = torch.sigmoid(projection).item()
+#     scores.append(score)
 
-# OPTIONAL: Flip direction if projections decrease with alpha
-if scores[-1] < scores[0]:
-    scores = [-s for s in scores]
+# # OPTIONAL: Flip direction if projections decrease with alpha
+# if scores[-1] < scores[0]:
+#     scores = [-s for s in scores]
 
-# Plot
-plt.figure(figsize=(6, 4))
-plt.plot(alphas.cpu().numpy(), scores)
-plt.xlabel("Truth Injection (alpha)")
-plt.ylabel("Dot Product with Truth Direction")
-plt.title("Interpolated Projection onto Truth Direction")
-plt.grid(True)
-plt.tight_layout()
-plt.savefig("causal_intervention_projection.png")
-plt.show()
-print("✅ Saved causal_intervention_projection.png")
+# # Plot
+# plt.figure(figsize=(6, 4))
+# plt.plot(alphas.cpu().numpy(), scores)
+# plt.xlabel("Truth Injection (alpha)")
+# plt.ylabel("Dot Product with Truth Direction")
+# plt.title("Interpolated Projection onto Truth Direction")
+# plt.grid(True)
+# plt.tight_layout()
+# plt.savefig("causal_intervention_projection.png")
+# plt.show()
+# print("✅ Saved causal_intervention_projection.png")
 
 print("✅ Done!")
