@@ -38,11 +38,11 @@ dataset_source = "truefalse"
 # --------------------
 # ✅ Model selection
 # --------------------
-# model_name = "bert-base-uncased" 
-# model_name = "bert-large-uncased" 
+# model_name = "bert-base-uncased"
+# model_name = "bert-large-uncased"
 # model_name = 'roberta-base'
 # model_name = 'gpt2'
-model_name = 'meta-llama/Llama-3.2-1B-Instruct'
+model_name = "meta-llama/Llama-3.2-1B-Instruct"
 # model_name = 'meta-llama/Llama-3.2-1B'
 # model_name = 'meta-llama/Llama-3.2-3B-Instruct-SpinQuant_INT4_EO8'
 # model_name = "mistralai/Mistral-7B-v0.1"
@@ -55,7 +55,13 @@ use_control_tasks = True
 # --------------------
 # ✅ Device setup (MPS on Mac, CUDA with GPU, etc.)
 # --------------------
-device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
+device = torch.device(
+    "cuda"
+    if torch.cuda.is_available()
+    else "mps"
+    if torch.backends.mps.is_available()
+    else "cpu"
+)
 print(f"🖥️  Using {device}")
 
 
@@ -70,8 +76,8 @@ def get_num_layers(model):
     elif hasattr(model, "cfg") and hasattr(model.cfg, "n_layers"):
         return model.cfg.n_layers
     else:
-        raise AttributeError(
-            "Cannot determine number of layers for this model")
+        raise AttributeError("Cannot determine number of layers for this model")
+
 
 # --------------------
 # ✅ Load model and tokenizer
@@ -83,6 +89,7 @@ def load_model_and_tokenizer(model_name):
 
     if use_transformerlens:
         from transformer_lens import HookedTransformer
+
         model = HookedTransformer.from_pretrained(model_name, device=device)
         tokenizer = AutoTokenizer.from_pretrained(model_name)
 
@@ -100,13 +107,17 @@ def load_model_and_tokenizer(model_name):
 
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
-        tokenizer.padding_side = "left" if is_decoder_only_model(model_name) else "right"
+        tokenizer.padding_side = (
+            "left" if is_decoder_only_model(model_name) else "right"
+        )
 
-        model = model_class.from_pretrained(
-            model_name, output_hidden_states=True).to(device)
+        model = model_class.from_pretrained(model_name, output_hidden_states=True).to(
+            device
+        )
         model.eval()
 
     return tokenizer, model
+
 
 tokenizer, model = load_model_and_tokenizer(model_name)
 print(f"✅ {model_name.upper()} is ready.")
@@ -128,14 +139,16 @@ def generate_arithmetic_dataset(n=5000):
             text = f"{a} + {b} = {correct_sum}"
             label = 1
         else:
-            incorrect_sum = a + b + random.choice(
-                [i for i in range(-10, 11) if i != 0])  # avoid correct answer
+            incorrect_sum = (
+                a + b + random.choice([i for i in range(-10, 11) if i != 0])
+            )  # avoid correct answer
             text = f"{a} + {b} = {incorrect_sum}"
             label = 0
 
         data.append({"text": text, "label": label})
 
     return data
+
 
 print(f"📄 Loading dataset: {dataset_source.upper()}")
 
@@ -179,7 +192,7 @@ if dataset_source in ["truefalse", "all"]:
         "inventions",
         "facts",
         "elements",
-        "generated"
+        "generated",
     ]
 
     datasets_list = []
@@ -223,11 +236,12 @@ def get_hidden_states_hf(examples, return_layer=None):
 
     for i, ex in enumerate(examples):
         if i % 100 == 0:
-            print(f"    → Processing example with Hugging Face {i+1}/{len(examples)}")
+            print(f"    → Processing example with Hugging Face {i + 1}/{len(examples)}")
             print(f"      ↳ Text: {ex['text']} | Label: {ex['label']}")
 
-        inputs = tokenizer(ex['text'], return_tensors='pt',
-                           truncation=True, max_length=128)
+        inputs = tokenizer(
+            ex["text"], return_tensors="pt", truncation=True, max_length=128
+        )
         inputs = {k: v.to(device) for k, v in inputs.items()}
 
         with torch.no_grad():
@@ -236,18 +250,17 @@ def get_hidden_states_hf(examples, return_layer=None):
 
         # Use last token for decoder-only models, first for encoder-only
         if is_decoder_only_model(model_name):
-            cls_embeddings = torch.stack(
-                [layer[:, -1, :] for layer in hidden_states])
+            cls_embeddings = torch.stack([layer[:, -1, :] for layer in hidden_states])
         else:
-            cls_embeddings = torch.stack(
-                [layer[:, 0, :] for layer in hidden_states])
+            cls_embeddings = torch.stack([layer[:, 0, :] for layer in hidden_states])
 
         # [num_layers, hidden_dim]
         all_hidden_states.append(cls_embeddings.squeeze(1))
-        labels.append(ex['label'])
+        labels.append(ex["label"])
 
     all_hidden_states = torch.stack(all_hidden_states).to(
-        device)  # [N, num_layers, d_model]
+        device
+    )  # [N, num_layers, d_model]
     labels = torch.tensor(labels).to(device)
 
     if return_layer is not None:
@@ -256,17 +269,20 @@ def get_hidden_states_hf(examples, return_layer=None):
         return all_hidden_states, labels  # (N, num_layers, d_model)
 
 
-def get_hidden_states_transformerlens(examples, model, model_name, tokenizer, return_layer=None):
+def get_hidden_states_transformerlens(
+    examples, model, model_name, tokenizer, output="resid_post", return_layer=None
+):
     all_hidden_states = []
     labels = []
 
     for i, ex in enumerate(examples):
         if i % 100 == 0:
-            print(f"    → Processing example with TransformerLens {i+1}/{len(examples)}")
+            print(
+                f"    → Processing example with TransformerLens {i + 1}/{len(examples)}"
+            )
             print(f"      ↳ Text: {ex['text']} | Label: {ex['label']}")
 
-        tokens = tokenizer.encode(
-            ex["text"], return_tensors="pt").to(model.cfg.device)
+        tokens = tokenizer.encode(ex["text"], return_tensors="pt").to(model.cfg.device)
 
         # Run with cache to extract all activations
         _, cache = model.run_with_cache(tokens)
@@ -276,7 +292,7 @@ def get_hidden_states_transformerlens(examples, model, model_name, tokenizer, re
 
         # Get post-residual activations from each layer
         layer_outputs = [
-            cache["resid_post", layer_idx][0, pos, :]  # shape: (d_model,)
+            cache[output, layer_idx][0, pos, :]  # shape: (d_model,)
             for layer_idx in range(model.cfg.n_layers)
         ]
 
@@ -296,9 +312,11 @@ def get_hidden_states_transformerlens(examples, model, model_name, tokenizer, re
         return all_hidden_states, labels  # (N, L, D)
 
 
-def get_hidden_states(examples, return_layer=None):
+def get_hidden_states(examples, output=None, return_layer=None):
     if "HookedTransformer" in str(type(model)):
-        return get_hidden_states_transformerlens(examples, model, model_name, tokenizer, return_layer)
+        return get_hidden_states_transformerlens(
+            examples, model, model_name, tokenizer, output, return_layer
+        )
     else:
         return get_hidden_states_hf(examples, return_layer)
 
@@ -320,6 +338,7 @@ class LinearProbe(nn.Module):
 
     def forward(self, x):
         return torch.sigmoid(self.linear(x)).squeeze(-1)
+
 
 # --------------------
 # ✅ Train linear probe on one layer
@@ -387,21 +406,21 @@ for layer in range(num_layers):
 # ✅ Plot Accuracy vs. Layer
 # --------------------
 print("📊 Plotting accuracy by layer...")
-plt.plot(range(len(accuracies)), accuracies, marker='o')
-plt.title(
-    f"Truth Detection Accuracy per Layer ({model.config.name_or_path})")
+plt.plot(range(len(accuracies)), accuracies, marker="o")
+plt.title(f"Truth Detection Accuracy per Layer ({model.config.name_or_path})")
 plt.xlabel("Layer")
 plt.ylabel("Accuracy")
 plt.grid(True)
 plt.tight_layout()
-plt.savefig(f"{model_name}-{dataset_source}-probe_accuracy_per_layer.png")  # 💾 Save the plot
+plt.savefig(
+    f"{model_name}-{dataset_source}-probe_accuracy_per_layer.png"
+)  # 💾 Save the plot
 plt.show()
 print("✅ Plot saved")
 
 if use_control_tasks:
     plt.figure(figsize=(8, 5))
-    plt.plot(range(len(selectivities)), selectivities,
-             marker='o', label="Selectivity")
+    plt.plot(range(len(selectivities)), selectivities, marker="o", label="Selectivity")
     plt.title(f"Selectivity per Layer ({model.config.name_or_path})")
     plt.xlabel("Layer")
     plt.ylabel("Selectivity = Real Acc - Control Acc")
@@ -438,16 +457,27 @@ for layer in range(num_layers):
     # Probing predictions
     probe = probes[layer]
     with torch.no_grad():
-        preds = (probe(torch.tensor(feats).to(device))
-                 > 0.5).long().cpu().numpy()
+        preds = (probe(torch.tensor(feats).to(device)) > 0.5).long().cpu().numpy()
 
     acc = (preds == lbls).mean()
 
     ax = axs[layer]
-    ax.scatter(feats_2d[lbls == 1][:, 0], feats_2d[lbls == 1]
-               [:, 1], color='green', alpha=0.6, label="True", s=10)
-    ax.scatter(feats_2d[lbls == 0][:, 0], feats_2d[lbls == 0]
-               [:, 1], color='red', alpha=0.6, label="False", s=10)
+    ax.scatter(
+        feats_2d[lbls == 1][:, 0],
+        feats_2d[lbls == 1][:, 1],
+        color="green",
+        alpha=0.6,
+        label="True",
+        s=10,
+    )
+    ax.scatter(
+        feats_2d[lbls == 0][:, 0],
+        feats_2d[lbls == 0][:, 1],
+        color="red",
+        alpha=0.6,
+        label="False",
+        s=10,
+    )
     ax.set_title(f"Layer {layer} (Acc={acc:.2f})")
     ax.set_xticks([])
     ax.set_yticks([])
@@ -487,7 +517,7 @@ print("📈 Generating truth direction projection histograms for all layers...")
 
 # Set num_layers for histogram section
 num_layers = get_num_layers(model)
-rows = cols = math.ceil(num_layers ** 0.5)
+rows = cols = math.ceil(num_layers**0.5)
 fig, axs = plt.subplots(rows, cols, figsize=(cols * 4, rows * 3.5))
 axs = axs.flatten()
 
@@ -500,17 +530,17 @@ for layer in range(num_layers):
         projection = torch.matmul(feats, probe.linear.weight[0])  # shape: [N]
 
     ax = axs[layer]
-    ax.hist(projection[lbls == 1].cpu(), bins=30,
-            alpha=0.6, label="True", color='green')
-    ax.hist(projection[lbls == 0].cpu(), bins=30,
-            alpha=0.6, label="False", color='red')
+    ax.hist(
+        projection[lbls == 1].cpu(), bins=30, alpha=0.6, label="True", color="green"
+    )
+    ax.hist(projection[lbls == 0].cpu(), bins=30, alpha=0.6, label="False", color="red")
     ax.set_title(f"Layer {layer}")
     ax.set_xticks([])
     ax.set_yticks([])
 
 if num_layers > 0:
-    axs[num_layers-1].legend()
-    axs[num_layers-1].axis('off')
+    axs[num_layers - 1].legend()
+    axs[num_layers - 1].axis("off")
 plt.tight_layout()
 plt.suptitle("Projection onto Truth Direction per Layer", fontsize=20, y=1.02)
 plt.savefig(f"{model_name}-{dataset_source}-truth_projection_grid.png")
