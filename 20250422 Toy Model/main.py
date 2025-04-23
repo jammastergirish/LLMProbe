@@ -19,11 +19,13 @@ import matplotlib.pyplot as plt
 from transformers import BertTokenizer, BertModel
 from datasets import load_dataset
 from sklearn.model_selection import train_test_split
+import random
 
 # --------------------
 # ✅ Choose dataset source: 'truthfulqa', 'boolq', or 'both'
 # --------------------
-dataset_source = "truefalse"  # options: "truthfulqa", "boolq", "truefalse", or "all"
+# options: "truthfulqa", "boolq", "truefalse", or "all"
+dataset_source = "arithmetic"
 
 # ✅ Model config
 bert_model_name = "bert-large-uncased"  # or "bert-base-uncased"
@@ -49,6 +51,28 @@ print("✅ BERT is ready.")
 # --------------------
 # ✅ Load dataset
 # --------------------
+
+
+def generate_arithmetic_dataset(n=5000):
+    data = []
+    while len(data) < n:
+        a = random.randint(0, 100)
+        b = random.randint(0, 100)
+
+        # 50% chance of being true
+        if len(data) % 2 == 0:
+            correct_sum = a + b
+            text = f"{a} + {b} = {correct_sum}"
+            label = 1
+        else:
+            incorrect_sum = a + b + random.choice(
+                [i for i in range(-10, 11) if i != 0])  # avoid correct answer
+            text = f"{a} + {b} = {incorrect_sum}"
+            label = 0
+
+        data.append({"text": text, "label": label})
+
+    return data
 
 print(f"📄 Loading dataset: {dataset_source.upper()}")
 
@@ -106,6 +130,12 @@ if dataset_source in ["truefalse", "all"]:
         examples.append({"text": row["statement"], "label": row["label"]})
 
     print(f"✅ TRUEFALSE added. Total examples now: {len(examples)}")
+
+if dataset_source in ["arithmetic", "all"]:
+    print("📐 Generating ARITHMETIC dataset...")
+    arithmetic = generate_arithmetic_dataset(5000)
+    examples.extend(arithmetic)
+    print(f"✅ Arithmetic dataset added. Total examples now: {len(examples)}")
 
 print(f"✅ Prepared {len(examples)} labeled examples for probing.")
 
