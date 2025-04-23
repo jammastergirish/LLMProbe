@@ -17,6 +17,7 @@ import torch.nn as nn
 import torch.optim as optim
 import matplotlib.pyplot as plt
 from transformers import BertTokenizer, BertModel
+from transformers import AutoTokenizer, AutoModel
 from datasets import load_dataset
 from sklearn.model_selection import train_test_split
 import random
@@ -25,10 +26,11 @@ import random
 # ✅ Choose dataset source: 'truthfulqa', 'boolq', or 'both'
 # --------------------
 # options: "truthfulqa", "boolq", "truefalse", or "all"
-dataset_source = "arithmetic"
+dataset_source = "truefalse"
 
 # ✅ Model config
-bert_model_name = "bert-large-uncased"  # or "bert-base-uncased"
+model_name = "bert-large-uncased"  # or "bert-base-uncased"
+model_name = 'roberta-base'
 
 use_control_tasks = True
 
@@ -41,12 +43,12 @@ print(f"🖥️  Using device: {device}")
 # --------------------
 # ✅ Load BERT
 # --------------------
-print("📦 Loading BERT model and tokenizer...")
-tokenizer = BertTokenizer.from_pretrained(bert_model_name)
-model = BertModel.from_pretrained(
-    bert_model_name, output_hidden_states=True).to(device)
+print("📦 Loading model and tokenizer...")
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModel.from_pretrained(
+    model_name, output_hidden_states=True).to(device)
 model.eval()
-print("✅ BERT is ready.")
+print("✅ Model is ready.")
 
 # --------------------
 # ✅ Load dataset
