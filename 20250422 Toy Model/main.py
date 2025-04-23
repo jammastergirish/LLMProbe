@@ -26,7 +26,7 @@ from sklearn.model_selection import train_test_split
 dataset_source = "truthfulqa"  # 'truthfulqa' or 'boolq' or 'both'
 
 # ✅ Model config
-bert_model_name = "bert-base-uncased"  # or "bert-base-uncased"
+bert_model_name = "bert-large-uncased"  # or "bert-base-uncased"
 
 # --------------------
 # ✅ Device setup (MPS on Mac)
