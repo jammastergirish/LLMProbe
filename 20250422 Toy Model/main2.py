@@ -89,7 +89,7 @@ st.markdown("""
 
 # Sidebar with custom styling
 st.sidebar.markdown("""
-<div style="background-color: #1E88E5; padding: 10px; border-radius: 5px; margin-bottom: 20px;">
+<div style="background-color: #1E88E5; padding: 5px; border-radius: 5px; margin-bottom: 20px;">
     <h2 style="color: white; margin: 0;">Configuration</h2>
 </div>
 """, unsafe_allow_html=True)
@@ -128,7 +128,6 @@ device = torch.device(device_name)
 
 # Advanced options expander
 with st.sidebar.expander("⚙️ Advanced Options"):
-    batch_size = st.number_input("Batch size", min_value=1, max_value=128, value=32)
     train_epochs = st.number_input("Training epochs", min_value=10, max_value=500, value=100)
     learning_rate = st.number_input("Learning rate", min_value=0.0001, max_value=0.1, value=0.01, format="%.4f")
     max_samples = st.number_input("Max samples per dataset", min_value=100, max_value=10000, value=5000)
@@ -492,8 +491,8 @@ def load_dataset(dataset_source, progress_callback, max_samples=5000):
     return examples
 
 # Function to extract hidden states
-def get_hidden_states(examples, model, tokenizer, model_name, output_layer, return_layer=None, progress_callback=None, batch_size=32):
-    """Extract hidden states with progress updates and batching"""
+def get_hidden_states(examples, model, tokenizer, model_name, output_layer, dataset_type="", return_layer=None, progress_callback=None):
+    """Extract hidden states without batching"""
     all_hidden_states = []
     labels = []
     
@@ -516,78 +515,59 @@ def get_hidden_states(examples, model, tokenizer, model_name, output_layer, retu
             else:
                 d_model = 768  # Default fallback
     
-    # Process examples in batches
-    num_batches = math.ceil(len(examples) / batch_size)
-    progress_callback(0, f"Preparing to process {len(examples)} examples in {num_batches} batches", 
-                     f"Each batch will contain up to {batch_size} examples")
+    progress_callback(0, f"Preparing to process {len(examples)} {dataset_type} examples", 
+                     f"Extracting features for each example one at a time")
     
-    for batch_idx in range(num_batches):
-        start_idx = batch_idx * batch_size
-        end_idx = min((batch_idx + 1) * batch_size, len(examples))
-        batch_examples = examples[start_idx:end_idx]
+    # Process each example
+    for i, ex in enumerate(examples):
+        # Show current example processing details
+        progress = (i) / len(examples)
+        example_text = ex["text"]
+        if len(example_text) > 50:
+            example_text = example_text[:47] + "..."
         
-        progress = (batch_idx) / num_batches
-        progress_callback(progress, f"Processing batch {batch_idx+1}/{num_batches}", 
-                         f"Examples {start_idx+1}-{end_idx} of {len(examples)}")
+        progress_callback(progress, 
+                         f"Processing {dataset_type} example {i+1}/{len(examples)}", 
+                         f"Text: '{example_text}' | Label: {ex['label']}")
         
-        # Process each example in the batch
-        batch_hidden_states = []
-        batch_labels = []
-        
-        for i, ex in enumerate(batch_examples):
-            # Show current example processing details
-            if (i % 5 == 0) or (i == len(batch_examples) - 1):
-                example_progress = progress + (i / len(batch_examples)) / num_batches
-                example_text = ex["text"]
-                if len(example_text) > 50:
-                    example_text = example_text[:47] + "..."
-                
-                progress_callback(example_progress, 
-                                 f"Batch {batch_idx+1}/{num_batches}: Example {i+1}/{len(batch_examples)}", 
-                                 f"Text: '{example_text}' | Label: {ex['label']}")
+        # Process the example
+        if is_transformerlens:
+            tokens = tokenizer.encode(ex["text"], return_tensors="pt").to(model.cfg.device)
             
-            # Process the example
-            if is_transformerlens:
-                tokens = tokenizer.encode(ex["text"], return_tensors="pt").to(model.cfg.device)
-                
-                # Run with cache to extract all activations
-                _, cache = model.run_with_cache(tokens)
-                
-                # Choose position index (last token for decoder-only, first otherwise)
-                pos = -1 if is_decoder else 0
-                
-                # Get activations from each layer
-                layer_outputs = [
-                    cache[output_layer, layer_idx][0, pos, :]  # shape: (d_model,)
-                    for layer_idx in range(model.cfg.n_layers)
-                ]
-                
-                # Stack into shape: (num_layers, d_model)
-                hidden_stack = torch.stack(layer_outputs)
-                
+            # Run with cache to extract all activations
+            _, cache = model.run_with_cache(tokens)
+            
+            # Choose position index (last token for decoder-only, first otherwise)
+            pos = -1 if is_decoder else 0
+            
+            # Get activations from each layer
+            layer_outputs = [
+                cache[output_layer, layer_idx][0, pos, :]  # shape: (d_model,)
+                for layer_idx in range(model.cfg.n_layers)
+            ]
+            
+            # Stack into shape: (num_layers, d_model)
+            hidden_stack = torch.stack(layer_outputs)
+            
+        else:
+            inputs = tokenizer(ex["text"], return_tensors="pt", truncation=True, max_length=128)
+            inputs = {k: v.to(device) for k, v in inputs.items()}
+            
+            with torch.no_grad():
+                outputs = model(**inputs)
+                hidden_states = outputs.hidden_states
+            
+            # Use last token for decoder-only models, first for encoder-only
+            if is_decoder:
+                cls_embeddings = torch.stack([layer[:, -1, :] for layer in hidden_states])
             else:
-                inputs = tokenizer(ex["text"], return_tensors="pt", truncation=True, max_length=128)
-                inputs = {k: v.to(device) for k, v in inputs.items()}
-                
-                with torch.no_grad():
-                    outputs = model(**inputs)
-                    hidden_states = outputs.hidden_states
-                
-                # Use last token for decoder-only models, first for encoder-only
-                if is_decoder:
-                    cls_embeddings = torch.stack([layer[:, -1, :] for layer in hidden_states])
-                else:
-                    cls_embeddings = torch.stack([layer[:, 0, :] for layer in hidden_states])
-                
-                # [num_layers, hidden_dim]
-                hidden_stack = cls_embeddings.squeeze(1)
+                cls_embeddings = torch.stack([layer[:, 0, :] for layer in hidden_states])
             
-            batch_hidden_states.append(hidden_stack)
-            batch_labels.append(ex["label"])
+            # [num_layers, hidden_dim]
+            hidden_stack = cls_embeddings.squeeze(1)
         
-        # Append batch results to the full results
-        all_hidden_states.extend(batch_hidden_states)
-        labels.extend(batch_labels)
+        all_hidden_states.append(hidden_stack)
+        labels.append(ex["label"])
         
         # Sleep a tiny bit to allow UI to update
         time.sleep(0.01)
@@ -597,7 +577,7 @@ def get_hidden_states(examples, model, tokenizer, model_name, output_layer, retu
     labels = torch.tensor(labels).to(device)
     
     # Update to 100%
-    progress_callback(1.0, f"Completed processing all {len(examples)} examples", 
+    progress_callback(1.0, f"Completed processing all {len(examples)} {dataset_type} examples", 
                      f"Created tensor of shape {all_hidden_states.shape}")
     
     # Allow slicing if return_layer is specified
@@ -1022,19 +1002,19 @@ if run_button:
         stats_placeholder.table(stats_df)
         
         # 3. Extract embeddings with progress
-        update_embedding_progress(0, "Extracting embeddings for train set...", "Initializing")
+        update_embedding_progress(0, "Extracting embeddings for TRAIN set...", "Initializing")
         
         # Extract train embeddings
         train_hidden_states, train_labels = get_hidden_states(
             train_examples, model, tokenizer, model_name, output_layer, 
-            progress_callback=update_embedding_progress, batch_size=batch_size
+            dataset_type="TRAIN", progress_callback=update_embedding_progress
         )
         
         # Extract test embeddings
-        update_embedding_progress(0, "Extracting embeddings for test set...", "Initializing")
+        update_embedding_progress(0, "Extracting embeddings for TEST set...", "Initializing")
         test_hidden_states, test_labels = get_hidden_states(
             test_examples, model, tokenizer, model_name, output_layer,
-            progress_callback=update_embedding_progress, batch_size=batch_size
+            dataset_type="TEST", progress_callback=update_embedding_progress
         )
         mark_complete(embedding_status)
         
