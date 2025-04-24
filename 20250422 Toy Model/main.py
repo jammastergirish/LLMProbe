@@ -29,11 +29,12 @@ import random
 import transformer_lens
 from transformer_lens import HookedTransformer
 
+
 # --------------------
 # ✅ Dataset source
 # --------------------
 # options: "truthfulqa", "boolq", "truefalse", or "all"
-dataset_source = "arithmetic"
+dataset_source = "truefalse"
 
 # --------------------
 # ✅ Model selection
@@ -65,7 +66,7 @@ device = torch.device(
 print(f"🖥️  Using {device}")
 
 output_layer = "resid_post"
-output_layer = "attn_out"
+# output_layer = "attn_out"
 # output_layer = "mlp_out"
 
 def is_decoder_only_model(model_name):
@@ -604,112 +605,198 @@ print("✅ Saved truth_projection_grid.png")
 # print("✅ Saved causal_intervention_projection.png")
 
 
-def run_causal_intervention(model, tokenizer, probe, false_prompt, true_prompt, layer, scale=1.0):
-    tokens_false = tokenizer(false_prompt, return_tensors="pt")[
-        "input_ids"].to(model.cfg.device)
-    tokens_true = tokenizer(true_prompt, return_tensors="pt")[
-        "input_ids"].to(model.cfg.device)
+# def run_causal_intervention(model, tokenizer, probe, false_prompt, true_prompt, layer, scale=1.0):
+#     tokens_false = tokenizer(false_prompt, return_tensors="pt")[
+#         "input_ids"].to(model.cfg.device)
+#     tokens_true = tokenizer(true_prompt, return_tensors="pt")[
+#         "input_ids"].to(model.cfg.device)
 
-    # Run both with cache
-    _, cache_false = model.run_with_cache(tokens_false)
-    _, cache_true = model.run_with_cache(tokens_true)
+#     # Run both with cache
+#     _, cache_false = model.run_with_cache(tokens_false)
+#     _, cache_true = model.run_with_cache(tokens_true)
 
-    # Extract residual stream at that layer
-    resid_false = cache_false["resid_post", layer]
-    resid_true = cache_true["resid_post", layer]
+#     # Extract residual stream at that layer
+#     resid_false = cache_false["resid_post", layer]
+#     resid_true = cache_true["resid_post", layer]
 
-    # Extract direction from trained probe
-    direction = probe.linear.weight[0]  # shape: [d_model]
+#     # Extract direction from trained probe
+#     direction = probe.linear.weight[0]  # shape: [d_model]
 
-    # Project the false example residual onto the probe direction
-    projection_false = torch.matmul(resid_false, direction)
+#     # Project the false example residual onto the probe direction
+#     projection_false = torch.matmul(resid_false, direction)
 
-    # Inject scaled truth direction into false example
-    injected_resid = resid_false + scale * direction
+#     # Inject scaled truth direction into false example
+#     injected_resid = resid_false + scale * direction
 
-    # Resume forward pass
-    x = injected_resid
-    for l in range(layer, model.cfg.n_layers):
-        x = model.blocks[l](x)
-    x = model.ln_final(x)
-    logits = model.unembed(x)
+#     # Resume forward pass
+#     x = injected_resid
+#     for l in range(layer, model.cfg.n_layers):
+#         x = model.blocks[l](x)
+#     x = model.ln_final(x)
+#     logits = model.unembed(x)
 
-    # Decode and compare
-    predicted_id = logits[0, -1].argmax().item()
-    prediction = tokenizer.decode(predicted_id)
-    return prediction, torch.softmax(logits[0, -1], dim=0)[predicted_id].item()
+#     # Decode and compare
+#     predicted_id = logits[0, -1].argmax().item()
+#     prediction = tokenizer.decode(predicted_id)
+#     return prediction, torch.softmax(logits[0, -1], dim=0)[predicted_id].item()
 
-layer = 10
-false_prompt = "5 + 3 = 2"
-true_prompt = "5 + 3 = 8"
-probe = probes[layer]  # from your trained probes
+# layer = 10
+# false_prompt = "5 + 3 = 2"
+# true_prompt = "5 + 3 = 8"
+# probe = probes[layer]  # from your trained probes
 
-prediction, confidence = run_causal_intervention(model, tokenizer, probe, false_prompt, true_prompt, layer, scale=3.0)
+# prediction, confidence = run_causal_intervention(model, tokenizer, probe, false_prompt, true_prompt, layer, scale=3.0)
 
-print(f"Prediction after injecting truth direction: {repr(prediction)} (conf: {confidence:.4f})")
+# print(f"Prediction after injecting truth direction: {repr(prediction)} (conf: {confidence:.4f})")
 
 # -------------
 
 
-def integrated_gradients(
-    model,              # HookedTransformer
-    tokens,             # Input tokens [1, seq_len]
-    layer,              # Layer index (e.g., 10)
-    target_token_idx,   # Index in vocab to compute attribution toward
-    steps=50            # Number of interpolation steps
-):
-    with torch.no_grad():
-        _, cache = model.run_with_cache(tokens)
-        x_input = cache["resid_post", layer].detach()  # [1, seq_len, d_model]
+# def integrated_gradients(
+#     model,              # HookedTransformer
+#     tokens,             # Input tokens [1, seq_len]
+#     layer,              # Layer index (e.g., 10)
+#     target_token_idx,   # Index in vocab to compute attribution toward
+#     steps=50            # Number of interpolation steps
+# ):
+#     with torch.no_grad():
+#         _, cache = model.run_with_cache(tokens)
+#         x_input = cache["resid_post", layer].detach()  # [1, seq_len, d_model]
 
-    baseline = torch.zeros_like(x_input)
-    alphas = torch.linspace(0, 1, steps).to(x_input.device)
-    grads = []
+#     baseline = torch.zeros_like(x_input)
+#     alphas = torch.linspace(0, 1, steps).to(x_input.device)
+#     grads = []
 
-    for alpha in alphas:
-        x_interp = baseline + alpha * (x_input - baseline)
-        x_interp.requires_grad_(True)
+#     for alpha in alphas:
+#         x_interp = baseline + alpha * (x_input - baseline)
+#         x_interp.requires_grad_(True)
 
-        x = x_interp
-        for l in range(layer, model.cfg.n_layers):
-            x = model.blocks[l](x)
-        x = model.ln_final(x)
-        logits = model.unembed(x)  # [1, seq_len, vocab_size]
+#         x = x_interp
+#         for l in range(layer, model.cfg.n_layers):
+#             x = model.blocks[l](x)
+#         x = model.ln_final(x)
+#         logits = model.unembed(x)  # [1, seq_len, vocab_size]
 
-        logit = logits[0, -1, target_token_idx]
-        logit.backward()
-        grads.append(x_interp.grad.clone())
-        x_interp.grad.zero_()
+#         logit = logits[0, -1, target_token_idx]
+#         logit.backward()
+#         grads.append(x_interp.grad.clone())
+#         x_interp.grad.zero_()
 
-    grads = torch.stack(grads)  # [steps, 1, seq_len, d_model]
-    avg_grads = grads.mean(dim=0)  # [1, seq_len, d_model]
-    ig = (x_input - baseline) * avg_grads  # [1, seq_len, d_model]
+#     grads = torch.stack(grads)  # [steps, 1, seq_len, d_model]
+#     avg_grads = grads.mean(dim=0)  # [1, seq_len, d_model]
+#     ig = (x_input - baseline) * avg_grads  # [1, seq_len, d_model]
 
-    return ig.squeeze(0)[-1]  # Attribution vector for last token
-
-
-prompt = "5 + 3 = "
-tokens = tokenizer(prompt, return_tensors="pt")[
-    "input_ids"].to(model.cfg.device)
-
-target = "8"
-target_id = tokenizer.encode(target, add_special_tokens=False)[0]
-
-layer = 10  # Or whichever layer you're analyzing
-ig_vector = integrated_gradients(model, tokens, layer, target_id, steps=50)
-
-# Show top contributing dimensions
-topk = torch.topk(ig_vector.abs(), k=10)
-print(f"🔍 Top IG features at layer {layer}:")
-for idx, val in zip(topk.indices.tolist(), topk.values.tolist()):
-    print(f"    Dimension {idx:4d}: {val:.6f}")
-
-probe_dir = probes[layer].linear.weight[0].detach()
-cos_sim = torch.nn.functional.cosine_similarity(ig_vector, probe_dir, dim=0)
-print(f"🧭 Cosine similarity between IG and probe direction: {cos_sim:.4f}")
-
-# -----------
+#     return ig.squeeze(0)[-1]  # Attribution vector for last token
 
 
+# prompt = "5 + 3 = "
+# tokens = tokenizer(prompt, return_tensors="pt")[
+#     "input_ids"].to(model.cfg.device)
+
+# target = "8"
+# target_id = tokenizer.encode(target, add_special_tokens=False)[0]
+
+# layer = 10  # Or whichever layer you're analyzing
+# ig_vector = integrated_gradients(model, tokens, layer, target_id, steps=50)
+
+# # Show top contributing dimensions
+# topk = torch.topk(ig_vector.abs(), k=10)
+# print(f"🔍 Top IG features at layer {layer}:")
+# for idx, val in zip(topk.indices.tolist(), topk.values.tolist()):
+#     print(f"    Dimension {idx:4d}: {val:.6f}")
+
+# probe_dir = probes[layer].linear.weight[0].detach()
+# cos_sim = torch.nn.functional.cosine_similarity(ig_vector, probe_dir, dim=0)
+# print(f"🧭 Cosine similarity between IG and probe direction: {cos_sim:.4f}")
+
+
+# # --------------------
+# # ✅ Sparse Autoencoder + Analysis
+# # --------------------
+
+
+# class SparseAutoencoder(nn.Module):
+#     def __init__(self, input_dim, hidden_dim):
+#         super().__init__()
+#         self.encoder = nn.Linear(input_dim, hidden_dim)
+#         self.decoder = nn.Linear(hidden_dim, input_dim)
+
+#     def forward(self, x):
+#         z = torch.relu(self.encoder(x))
+#         x_recon = self.decoder(z)
+#         return x_recon, z
+
+
+# def train_sparse_autoencoder(hidden_states, hidden_dim=512, epochs=300, lr=1e-3, sparsity_weight=1e-5):
+#     input_dim = hidden_states.shape[1]
+#     model = SparseAutoencoder(input_dim, hidden_dim).to(hidden_states.device)
+#     optimizer = optim.Adam(model.parameters(), lr=lr)
+#     criterion = nn.MSELoss()
+
+#     for epoch in range(epochs):
+#         model.train()
+#         optimizer.zero_grad()
+#         x_recon, z = model(hidden_states)
+#         mse_loss = criterion(x_recon, hidden_states)
+#         l1_loss = sparsity_weight * torch.mean(torch.abs(z))
+#         loss = mse_loss + l1_loss
+#         loss.backward()
+#         optimizer.step()
+
+#         if epoch % 50 == 0 or epoch == epochs - 1:
+#             print(f"Epoch {epoch+1}/{epochs} | MSE: {mse_loss.item():.6f} | L1: {l1_loss.item():.6f} | Total: {loss.item():.6f}")
+
+#     return model
+
+
+# def analyze_latents(autoencoder, hidden_states, labels):
+#     with torch.no_grad():
+#         _, latents = autoencoder(hidden_states)
+
+#     labels = labels.float().unsqueeze(1)
+#     correlations = torch.abs(torch.corrcoef(
+#         torch.cat([latents.T, labels.T]))[-1, :-1])
+#     top_indices = torch.topk(correlations, k=10).indices
+#     return top_indices, correlations
+
+
+# def display_latent_correlations(top_indices, correlations):
+#     print("📊 Top latent features by absolute correlation with truth labels:")
+#     for i in top_indices:
+#         print(f"    Latent {i.item():4d} — Correlation: {correlations[i]:.4f}")
+
+
+# def plot_latent_distributions(autoencoder, hidden_states, labels, top_indices):
+#     with torch.no_grad():
+#         _, latents = autoencoder(hidden_states)
+
+#     num = len(top_indices)
+#     cols = min(5, num)
+#     rows = (num + cols - 1) // cols
+#     fig, axs = plt.subplots(rows, cols, figsize=(cols * 4, rows * 3))
+
+#     axs = axs.flatten()
+#     for i, idx in enumerate(top_indices):
+#         ax = axs[i]
+#         ax.hist(latents[labels == 1, idx].cpu(), bins=30,
+#                 alpha=0.6, label="True", color="green")
+#         ax.hist(latents[labels == 0, idx].cpu(), bins=30,
+#                 alpha=0.6, label="False", color="red")
+#         ax.set_title(f"Latent {idx.item()}")
+#         ax.set_xticks([])
+#         ax.set_yticks([])
+
+#     axs[0].legend()
+#     plt.tight_layout()
+#     plt.show()
+
+# layer = 13
+# feats = train_hidden_states[:, layer, :]  # or test_hidden_states[:, layer, :]
+# labels = train_labels
+
+# autoencoder = train_sparse_autoencoder(feats, hidden_dim=512)
+# topk, corr = analyze_latents(autoencoder, feats, labels)
+# display_latent_correlations(topk, corr)
+# plot_latent_distributions(autoencoder, feats, labels, topk)
 
 print("✅ Done!")
