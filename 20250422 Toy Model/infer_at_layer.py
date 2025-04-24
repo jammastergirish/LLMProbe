@@ -17,6 +17,8 @@ import torch
 from transformer_lens import HookedTransformer
 from transformers import AutoTokenizer
 
+# uv run --with streamlit --with torch  --with transformers --with datasets --with matplotlib --with scikit-learn --with protobug --with tiktoken --with blobfile --with accelerate --with transformer-lens streamlit run  main2.py
+
 
 def logit_lens_eval(model: HookedTransformer, tokens: torch.Tensor, layers: list[int], target_token: str = "8"):
     """
