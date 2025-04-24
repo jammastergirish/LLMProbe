@@ -1068,187 +1068,276 @@ if run_button:
             if use_control_tasks:
                 acc_df['Control Accuracy'] = results['control_accuracies']
                 acc_df['Selectivity'] = results['selectivities']
-            
+
             data_display.dataframe(acc_df)
-            
+
             # Find best layer
             best_layer = np.argmax(results['accuracies'])
             best_acc = results['accuracies'][best_layer]
-            data_display.success(f"Best layer: {best_layer} with accuracy {best_acc:.4f}")
-            
-            # Add layer selector for detailed analysis
-            selected_layer = layer_select_container.slider(
-                "Select layer to analyze", 
-                min_value=0, 
-                max_value=num_layers-1, 
-                value=best_layer
+            data_display.success(
+                f"Best layer: {best_layer} with accuracy {best_acc:.4f}")
+
+            # Group layers into smaller chunks for better tab navigation
+            layer_groups = []
+            group_size = 5  # Number of layers per tab group
+
+            for i in range(0, num_layers, group_size):
+                end_idx = min(i + group_size, num_layers)
+                group_name = f"Layers {i}-{end_idx-1}"
+                layer_groups.append(group_name)
+
+            # Add a special tab for the best layer
+            layer_groups.append(f"Best Layer ({best_layer})")
+
+            # Create tabs for layer groups
+            selected_group = layer_select_container.radio(
+                "Select layer group:",
+                layer_groups,
+                horizontal=True
             )
-            
-            # Show details for selected layer
-            col1, col2 = layer_analysis.columns(2)
-            with col1:
-                st.subheader(f"Layer {selected_layer} Details")
-                probe = results['probes'][selected_layer]
-                
-                # Extract test features for this layer
-                test_feats = test_hidden_states[:, selected_layer, :]
-                
-                with torch.no_grad():
-                    # Get predictions
-                    test_outputs = probe(test_feats)
-                    test_preds = (test_outputs > 0.5).long()
-                    
-                    # Make sure tensors are on the same device
-                    test_preds_device = test_preds.to(device)
-                    test_labels_device = test_labels.to(device)
-                    
-                    # Confusion matrix components
-                    TP = ((test_preds_device == 1) & (test_labels_device == 1)).sum().item()
-                    FP = ((test_preds_device == 1) & (test_labels_device == 0)).sum().item()
-                    TN = ((test_preds_device == 0) & (test_labels_device == 0)).sum().item()
-                    FN = ((test_preds_device == 0) & (test_labels_device == 1)).sum().item()
-                    
-                    # Calculate metrics
-                    accuracy = (TP + TN) / (TP + TN + FP + FN)
-                    precision = TP / (TP + FP) if (TP + FP) > 0 else 0
-                    recall = TP / (TP + FN) if (TP + FN) > 0 else 0
-                    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
-                
-                # Display metrics
-                metrics_df = pd.DataFrame({
-                    'Metric': ['Accuracy', 'Precision', 'Recall', 'F1 Score', 'True Positives', 
-                              'False Positives', 'True Negatives', 'False Negatives'],
-                    'Value': [f"{accuracy:.4f}", f"{precision:.4f}", f"{recall:.4f}", f"{f1:.4f}",
-                             str(TP), str(FP), str(TN), str(FN)]
-                })
-                st.table(metrics_df)
-            
-            with col2:
-                st.subheader("Confusion Matrix")
-                # Create a small confusion matrix plot
-                fig, ax = plt.subplots(figsize=(4, 3))
-                cm = np.array([[TN, FP], [FN, TP]])
-                im = ax.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
-                ax.set_title(f"Layer {selected_layer} Confusion Matrix")
-                
-                # Show all ticks and label them
-                ax.set_xticks(np.arange(2))
-                ax.set_yticks(np.arange(2))
-                ax.set_xticklabels(['Predicted False', 'Predicted True'])
-                ax.set_yticklabels(['Actual False', 'Actual True'])
-                
-                # Rotate tick labels and set alignment
-                plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
-                
-                # Loop over data dimensions and create text annotations
-                for i in range(2):
-                    for j in range(2):
-                        ax.text(j, i, cm[i, j], ha="center", va="center", color="w" if cm[i, j] > cm.max()/2 else "black")
-                
-                plt.tight_layout()
-                st.pyplot(fig)
-                
-                # Add examples
-                st.subheader("Example Predictions")
-                
-                # Get some examples from the test set
-                with torch.no_grad():
-                    # Get confidence scores and move everything to CPU
-                    confidences = test_outputs.cpu().numpy()
-                    
-                    # Move tensors to CPU for consistent device
-                    test_preds_cpu = test_preds.cpu()
-                    test_labels_cpu = test_labels.cpu()
-                    
-                    # Get the most confident correct and incorrect predictions
-                    correct_mask = test_preds_cpu == test_labels_cpu
-                    incorrect_mask = ~correct_mask
-                    
-                    # Make sure all tensors are on the same device
-                    test_labels_cpu = test_labels.cpu()
-                    correct_mask_cpu = correct_mask.cpu()
-                    incorrect_mask_cpu = incorrect_mask.cpu()
-                    
-                    # Separate by true/false and correct/incorrect
-                    true_correct = (test_labels_cpu == 1) & correct_mask_cpu
-                    false_correct = (test_labels_cpu == 0) & correct_mask_cpu
-                    true_incorrect = (test_labels_cpu == 1) & incorrect_mask_cpu
-                    false_incorrect = (test_labels_cpu == 0) & incorrect_mask_cpu
-                    
-                    # Get the confidence scores for each category
-                    true_correct_conf = confidences[true_correct.cpu()]
-                    false_correct_conf = confidences[false_correct.cpu()]
-                    true_incorrect_conf = confidences[true_incorrect.cpu()]
-                    false_incorrect_conf = confidences[false_incorrect.cpu()]
-                    
-                    # Get indices for sorting
-                    if len(true_correct_conf) > 0:
-                        true_correct_idx = torch.nonzero(true_correct.cpu()).cpu().numpy().flatten()
-                        true_correct_sorted = true_correct_idx[np.argsort(-true_correct_conf)]
-                    else:
-                        true_correct_sorted = []
-                        
-                    if len(false_correct_conf) > 0:
-                        false_correct_idx = torch.nonzero(false_correct.cpu()).cpu().numpy().flatten()
-                        false_correct_sorted = false_correct_idx[np.argsort(false_correct_conf)]
-                    else:
-                        false_correct_sorted = []
-                        
-                    if len(true_incorrect_conf) > 0:
-                        true_incorrect_idx = torch.nonzero(true_incorrect.cpu()).cpu().numpy().flatten()
-                        true_incorrect_sorted = true_incorrect_idx[np.argsort(true_incorrect_conf)]
-                    else:
-                        true_incorrect_sorted = []
-                        
-                    if len(false_incorrect_conf) > 0:
-                        false_incorrect_idx = torch.nonzero(false_incorrect.cpu()).cpu().numpy().flatten()
-                        false_incorrect_sorted = false_incorrect_idx[np.argsort(-false_incorrect_conf)]
-                    else:
-                        false_incorrect_sorted = []
-                
-                # Display examples
-                with st.expander("Most Confident Correct Predictions"):
-                    # Show the most confident true positive and true negative
-                    cols = st.columns(2)
-                    with cols[0]:
-                        st.markdown("**Most confident TRUE prediction (correctly predicted as TRUE)**")
-                        if len(true_correct_sorted) > 0:
-                            idx = true_correct_sorted[0]
-                            st.markdown(f"Example: `{test_examples[idx]['text']}`")
-                            st.markdown(f"Confidence: {confidences[idx]:.4f}")
-                        else:
-                            st.markdown("No examples found")
-                    
-                    with cols[1]:
-                        st.markdown("**Most confident FALSE prediction (correctly predicted as FALSE)**")
-                        if len(false_correct_sorted) > 0:
-                            idx = false_correct_sorted[0]
-                            st.markdown(f"Example: `{test_examples[idx]['text']}`")
-                            st.markdown(f"Confidence: {1-confidences[idx]:.4f}")
-                        else:
-                            st.markdown("No examples found")
-                
-                with st.expander("Most Confident Incorrect Predictions"):
-                    # Show the most confident false positive and false negative
-                    cols = st.columns(2)
-                    with cols[0]:
-                        st.markdown("**Most confident FALSE prediction (incorrectly predicted as TRUE)**")
-                        if len(false_incorrect_sorted) > 0:
-                            idx = false_incorrect_sorted[0]
-                            st.markdown(f"Example: `{test_examples[idx]['text']}`")
-                            st.markdown(f"Confidence: {confidences[idx]:.4f}")
-                        else:
-                            st.markdown("No examples found")
-                    
-                    with cols[1]:
-                        st.markdown("**Most confident TRUE prediction (incorrectly predicted as FALSE)**")
-                        if len(true_incorrect_sorted) > 0:
-                            idx = true_incorrect_sorted[0]
-                            st.markdown(f"Example: `{test_examples[idx]['text']}`")
-                            st.markdown(f"Confidence: {1-confidences[idx]:.4f}")
-                        else:
-                            st.markdown("No examples found")
-        
+
+            # Determine which layers to show tabs for
+            if selected_group == f"Best Layer ({best_layer})":
+                layers_to_show = [best_layer]
+            else:
+                # Extract range from group name
+                start_idx, end_idx = map(
+                    int, selected_group.replace("Layers ", "").split("-"))
+                layers_to_show = list(range(start_idx, end_idx + 1))
+
+            # Create tabs for individual layers in the selected group
+            layer_tabs = layer_select_container.tabs(
+                [f"Layer {layer}" for layer in layers_to_show])
+
+            # Display analysis for the selected layer tab
+            for i, layer_tab in enumerate(layer_tabs):
+                with layer_tab:
+                    selected_layer = layers_to_show[i]
+
+                    # Show details for selected layer
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.subheader(f"Layer {selected_layer} Details")
+                        probe = results['probes'][selected_layer]
+
+                        # Extract test features for this layer
+                        test_feats = test_hidden_states[:, selected_layer, :]
+
+                        with torch.no_grad():
+                            # Get predictions
+                            test_outputs = probe(test_feats)
+                            test_preds = (test_outputs > 0.5).long()
+
+                            # Make sure tensors are on the same device
+                            test_preds_device = test_preds.to(device)
+                            test_labels_device = test_labels.to(device)
+
+                            # Confusion matrix components
+                            TP = ((test_preds_device == 1) & (
+                                test_labels_device == 1)).sum().item()
+                            FP = ((test_preds_device == 1) & (
+                                test_labels_device == 0)).sum().item()
+                            TN = ((test_preds_device == 0) & (
+                                test_labels_device == 0)).sum().item()
+                            FN = ((test_preds_device == 0) & (
+                                test_labels_device == 1)).sum().item()
+
+                            # Calculate metrics
+                            accuracy = (TP + TN) / (TP + TN + FP + FN)
+                            precision = TP / (TP + FP) if (TP + FP) > 0 else 0
+                            recall = TP / (TP + FN) if (TP + FN) > 0 else 0
+                            f1 = 2 * precision * recall / \
+                                (precision + recall) if (precision + recall) > 0 else 0
+
+                        # Display metrics
+                        metrics_df = pd.DataFrame({
+                            'Metric': ['Accuracy', 'Precision', 'Recall', 'F1 Score', 'True Positives',
+                                    'False Positives', 'True Negatives', 'False Negatives'],
+                            'Value': [f"{accuracy:.4f}", f"{precision:.4f}", f"{recall:.4f}", f"{f1:.4f}",
+                                    str(TP), str(FP), str(TN), str(FN)]
+                        })
+                        st.table(metrics_df)
+
+                        # Add truth direction projection visualization
+                        st.subheader("Truth Direction Projection")
+                        with torch.no_grad():
+                            projection = torch.matmul(
+                                test_feats, probe.linear.weight[0])
+
+                            # Get projection values for true and false examples
+                            true_proj = projection[test_labels == 1].cpu().numpy()
+                            false_proj = projection[test_labels == 0].cpu().numpy()
+
+                            # Create histogram
+                            fig_proj, ax_proj = plt.subplots(figsize=(8, 3))
+                            bins = np.linspace(
+                                min(projection.min().item(), -3),
+                                max(projection.max().item(), 3),
+                                30
+                            )
+
+                            # Plot histograms
+                            ax_proj.hist(true_proj, bins=bins, alpha=0.7,
+                                        label="True", color="#4CAF50")
+                            ax_proj.hist(false_proj, bins=bins, alpha=0.7,
+                                        label="False", color="#F44336")
+
+                            # Add a vertical line at the decision boundary (0.0)
+                            ax_proj.axvline(x=0, color='black',
+                                            linestyle='--', alpha=0.5)
+                            ax_proj.set_xlabel("Projection onto Truth Direction")
+                            ax_proj.set_ylabel("Count")
+                            ax_proj.legend()
+
+                            st.pyplot(fig_proj)
+
+                    with col2:
+                        st.subheader("Confusion Matrix")
+                        # Create a small confusion matrix plot
+                        fig, ax = plt.subplots(figsize=(4, 3))
+                        cm = np.array([[TN, FP], [FN, TP]])
+                        im = ax.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
+                        ax.set_title(f"Layer {selected_layer} Confusion Matrix")
+
+                        # Show all ticks and label them
+                        ax.set_xticks(np.arange(2))
+                        ax.set_yticks(np.arange(2))
+                        ax.set_xticklabels(['Predicted False', 'Predicted True'])
+                        ax.set_yticklabels(['Actual False', 'Actual True'])
+
+                        # Rotate tick labels and set alignment
+                        plt.setp(ax.get_xticklabels(), rotation=45,
+                                ha="right", rotation_mode="anchor")
+
+                        # Loop over data dimensions and create text annotations
+                        for i in range(2):
+                            for j in range(2):
+                                ax.text(j, i, cm[i, j], ha="center", va="center",
+                                        color="w" if cm[i, j] > cm.max()/2 else "black")
+
+                        plt.tight_layout()
+                        st.pyplot(fig)
+
+                        # Add examples
+                        st.subheader("Example Predictions")
+
+                        # Get some examples from the test set
+                        with torch.no_grad():
+                            # Get confidence scores and move everything to CPU
+                            confidences = test_outputs.cpu().numpy()
+
+                            # Move tensors to CPU for consistent device
+                            test_preds_cpu = test_preds.cpu()
+                            test_labels_cpu = test_labels.cpu()
+
+                            # Get the most confident correct and incorrect predictions
+                            correct_mask = test_preds_cpu == test_labels_cpu
+                            incorrect_mask = ~correct_mask
+
+                            # Make sure all tensors are on the same device
+                            test_labels_cpu = test_labels.cpu()
+                            correct_mask_cpu = correct_mask.cpu()
+                            incorrect_mask_cpu = incorrect_mask.cpu()
+
+                            # Separate by true/false and correct/incorrect
+                            true_correct = (test_labels_cpu == 1) & correct_mask_cpu
+                            false_correct = (test_labels_cpu == 0) & correct_mask_cpu
+                            true_incorrect = (test_labels_cpu ==
+                                            1) & incorrect_mask_cpu
+                            false_incorrect = (test_labels_cpu ==
+                                            0) & incorrect_mask_cpu
+
+                            # Get the confidence scores for each category
+                            true_correct_conf = confidences[true_correct.cpu()]
+                            false_correct_conf = confidences[false_correct.cpu()]
+                            true_incorrect_conf = confidences[true_incorrect.cpu()]
+                            false_incorrect_conf = confidences[false_incorrect.cpu()]
+
+                            # Get indices for sorting
+                            if len(true_correct_conf) > 0:
+                                true_correct_idx = torch.nonzero(
+                                    true_correct.cpu()).cpu().numpy().flatten()
+                                true_correct_sorted = true_correct_idx[np.argsort(
+                                    -true_correct_conf)]
+                            else:
+                                true_correct_sorted = []
+
+                            if len(false_correct_conf) > 0:
+                                false_correct_idx = torch.nonzero(
+                                    false_correct.cpu()).cpu().numpy().flatten()
+                                false_correct_sorted = false_correct_idx[np.argsort(
+                                    false_correct_conf)]
+                            else:
+                                false_correct_sorted = []
+
+                            if len(true_incorrect_conf) > 0:
+                                true_incorrect_idx = torch.nonzero(
+                                    true_incorrect.cpu()).cpu().numpy().flatten()
+                                true_incorrect_sorted = true_incorrect_idx[np.argsort(
+                                    true_incorrect_conf)]
+                            else:
+                                true_incorrect_sorted = []
+
+                            if len(false_incorrect_conf) > 0:
+                                false_incorrect_idx = torch.nonzero(
+                                    false_incorrect.cpu()).cpu().numpy().flatten()
+                                false_incorrect_sorted = false_incorrect_idx[np.argsort(
+                                    -false_incorrect_conf)]
+                            else:
+                                false_incorrect_sorted = []
+
+                        # Display examples
+                        with st.expander("Most Confident Correct Predictions"):
+                            # Show the most confident true positive and true negative
+                            cols = st.columns(2)
+                            with cols[0]:
+                                st.markdown(
+                                    "**Most confident TRUE prediction (correctly predicted as TRUE)**")
+                                if len(true_correct_sorted) > 0:
+                                    idx = true_correct_sorted[0]
+                                    st.markdown(
+                                        f"Example: `{test_examples[idx]['text']}`")
+                                    st.markdown(f"Confidence: {confidences[idx]:.4f}")
+                                else:
+                                    st.markdown("No examples found")
+
+                            with cols[1]:
+                                st.markdown(
+                                    "**Most confident FALSE prediction (correctly predicted as FALSE)**")
+                                if len(false_correct_sorted) > 0:
+                                    idx = false_correct_sorted[0]
+                                    st.markdown(
+                                        f"Example: `{test_examples[idx]['text']}`")
+                                    st.markdown(
+                                        f"Confidence: {1-confidences[idx]:.4f}")
+                                else:
+                                    st.markdown("No examples found")
+
+                        with st.expander("Most Confident Incorrect Predictions"):
+                            # Show the most confident false positive and false negative
+                            cols = st.columns(2)
+                            with cols[0]:
+                                st.markdown(
+                                    "**Most confident FALSE prediction (incorrectly predicted as TRUE)**")
+                                if len(false_incorrect_sorted) > 0:
+                                    idx = false_incorrect_sorted[0]
+                                    st.markdown(
+                                        f"Example: `{test_examples[idx]['text']}`")
+                                    st.markdown(f"Confidence: {confidences[idx]:.4f}")
+                                else:
+                                    st.markdown("No examples found")
+
+                            with cols[1]:
+                                st.markdown(
+                                    "**Most confident TRUE prediction (incorrectly predicted as FALSE)**")
+                                if len(true_incorrect_sorted) > 0:
+                                    idx = true_incorrect_sorted[0]
+                                    st.markdown(
+                                        f"Example: `{test_examples[idx]['text']}`")
+                                    st.markdown(
+                                        f"Confidence: {1-confidences[idx]:.4f}")
+                                else:
+                                    st.markdown("No examples found")
         # Add completion message
         st.success(f"Analysis complete! Best layer: {best_layer} with accuracy {best_acc:.4f}")
         
