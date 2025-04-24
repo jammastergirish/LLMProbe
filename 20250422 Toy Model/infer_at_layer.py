@@ -12,6 +12,7 @@
 # "transformer-lens"
 # ]
 # ///
+from transformers import AutoTokenizer, Llama4ForConditionalGeneration
 import torch
 from transformer_lens import HookedTransformer
 from transformers import AutoTokenizer
@@ -50,10 +51,45 @@ def logit_lens_eval(model: HookedTransformer, tokens: torch.Tensor, layers: list
             )
 
 
+def logit_lens_eval_llama4(model, tokenizer, prompt: str, target_token: str):
+    """
+    Run logit lens analysis on a HuggingFace LLaMA 4 model.
+    Prints the model's top prediction and confidence in `target_token` at each layer.
+    """
+    # Tokenize
+    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+    target_id = tokenizer.encode(target_token, add_special_tokens=False)[0]
+
+    # Forward pass with hidden states
+    with torch.no_grad():
+        outputs = model(**inputs)
+
+    # List of [batch, seq_len, hidden_dim]
+    hidden_states = outputs.hidden_states
+
+    print(f"\n🔬 Prompt: {repr(prompt)}")
+    print(f"🎯 Target token: {repr(target_token)} (id={target_id})\n")
+
+    for i, layer_h in enumerate(hidden_states):
+        last_token_state = layer_h[0, -1]  # Grab final token
+        logits = model.lm_head(last_token_state)
+        probs = torch.softmax(logits, dim=-1)
+
+        pred_id = torch.argmax(probs).item()
+        pred_token = tokenizer.decode(pred_id)
+        prob_target = probs[target_id].item()
+
+        print(
+            f"🔭 Layer {i:2d}:\n"
+            f"\tPrediction = {repr(pred_token):>5}\n"
+            f"\tprob('{target_token}') = {prob_target:.6f}\n\n"
+        )
+
+
 if __name__ == "__main__":
     model_name = "meta-llama/Llama-3.2-1B-Instruct"
     # model_name = 'gpt2xl'
-    model_name = "meta-llama/Llama-4-Scout-17B-16E-Instruct-Original"
+    # model_name = "meta-llama/Llama-4-Scout-17B-16E-Instruct-Original"
 
     model = HookedTransformer.from_pretrained(
         model_name, device="cuda" if torch.cuda.is_available() else "mps"
@@ -72,6 +108,24 @@ if __name__ == "__main__":
 
     logit_lens_eval(model, tokens, layers=selected_layers, target_token=target)
 
+    # ---------
+
+    model_name = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
+
+    model = Llama4ForConditionalGeneration.from_pretrained(
+        model_name,
+        attn_implementation="flex_attention",
+        device_map="auto",
+        torch_dtype=torch.bfloat16,
+        output_hidden_states=True,  # ← required for logit lens
+    )
+
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+    prompt = "The capital of France is"
+    target = " Paris"
+
+    logit_lens_eval_llama4(model, tokenizer, prompt, target)
     # ---------
 
     from transformers import AutoTokenizer, AutoModelForMaskedLM
