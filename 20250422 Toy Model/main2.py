@@ -79,7 +79,7 @@ st.markdown("""
     }
 </style>
 
-<div class="main-title">Probing Large Language Models</div>
+<div class="main-title">Probing Large Language Models</div>""", unsafe_allow_html=True)
 
 # Sidebar with custom styling
 st.sidebar.markdown("""
@@ -117,7 +117,7 @@ if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
     device_options.append("mps")
 device_options.append("cpu")
 
-device_name = st.sidebar.selectbox("💻 Compute device", device_options)
+device_name = st.sidebar.selectbox("💻 Compute", device_options)
 device = torch.device(device_name)
 
 # Advanced options expander
@@ -1064,44 +1064,16 @@ if run_button:
             best_layer = np.argmax(results['accuracies'])
             best_acc = results['accuracies'][best_layer]
             data_display.success(
-                f"Best layer: {best_layer} with accuracy {best_acc:.4f}")
-
-            # Group layers into smaller chunks for better tab navigation
-            layer_groups = []
-            group_size = 5  # Number of layers per tab group
-
-            for i in range(0, num_layers, group_size):
-                end_idx = min(i + group_size, num_layers)
-                group_name = f"Layers {i}-{end_idx-1}"
-                layer_groups.append(group_name)
-
-            # Add a special tab for the best layer
-            layer_groups.append(f"Best Layer ({best_layer})")
-
-            # Create tabs for layer groups
-            selected_group = layer_select_container.radio(
-                "Select layer group:",
-                layer_groups,
-                horizontal=True
+                f"Best layer: {best_layer} with accuracy {best_acc:.4f}"
             )
 
-            # Determine which layers to show tabs for
-            if selected_group == f"Best Layer ({best_layer})":
-                layers_to_show = [best_layer]
-            else:
-                # Extract range from group name
-                start_idx, end_idx = map(
-                    int, selected_group.replace("Layers ", "").split("-"))
-                layers_to_show = list(range(start_idx, end_idx + 1))
-
-            # Create tabs for individual layers in the selected group
-            layer_tabs = layer_select_container.tabs(
-                [f"Layer {layer}" for layer in layers_to_show])
+            # Create one tab per layer
+            layer_tabs = data_display.tabs([f"Layer {i}" for i in range(num_layers)])
 
             # Display analysis for the selected layer tab
             for i, layer_tab in enumerate(layer_tabs):
                 with layer_tab:
-                    selected_layer = layers_to_show[i]
+                    selected_layer = i
 
                     # Show details for selected layer
                     col1, col2 = st.columns(2)
