@@ -23,6 +23,8 @@ from transformers import (
 )
 from transformer_lens import HookedTransformer
 
+# uv run --with streamlit --with torch  --with transformers --with datasets --with matplotlib --with scikit-learn --with protobug --with tiktoken --with blobfile --with accelerate --with transformer-lens streamlit run  infer_layer.py
+
 
 def logit_lens_eval_llama3(model, tokenizer, prompt, target_token):
     import pandas as pd

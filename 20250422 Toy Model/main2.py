@@ -30,6 +30,8 @@ import time
 from datetime import datetime
 warnings.filterwarnings('ignore')
 
+# uv run --with streamlit --with torch  --with transformers --with datasets --with matplotlib --with scikit-learn --with protobug --with tiktoken --with blobfile --with accelerate --with transformer-lens streamlit run  main2.py
+
 st.set_page_config(page_title="LLM Truth Detection Probing", layout="wide")
 
 # Main title with custom styling
@@ -38,36 +40,30 @@ st.markdown("""
     .main-title {
         font-size: 2.5rem;
         font-weight: 700;
-        color: #1E88E5;
+        color: #FFFFFF;
         padding-bottom: 1rem;
-        border-bottom: 2px solid #f0f2f6;
+        border-bottom: 2px solid #FFFFFF;
         margin-bottom: 1rem;
     }
     .subtitle {
         font-size: 1.2rem;
         font-weight: 400;
-        color: #424242;
+        color: #FFFFFF;
         margin-bottom: 2rem;
     }
     .section-header {
         font-size: 1.5rem;
         font-weight: 600;
-        color: #333;
+        color: #FFFFFF;
         padding-top: 1rem;
-        border-top: 1px solid #e0e0e0;
+        border-top: 1px solid #FFFFFF;
         margin-top: 1.5rem;
     }
     .info-text {
         background-color: #e3f2fd;
         padding: 1rem;
         border-radius: 5px;
-        border-left: 5px solid #1E88E5;
-    }
-    .progress-container {
-        background-color: #f5f5f5;
-        padding: 1rem;
-        border-radius: 5px;
-        margin-bottom: 1rem;
+        border-left: 5px solid #FFFFFF;
     }
     .status-success {
         color: #2e7d32;
@@ -83,13 +79,11 @@ st.markdown("""
     }
 </style>
 
-<div class="main-title">Truth Detection in Language Models</div>
-<div class="subtitle">Analyzing how models encode truth vs. falsehood in their internal representations</div>
-""", unsafe_allow_html=True)
+<div class="main-title">Probing Large Language Models</div>
 
 # Sidebar with custom styling
 st.sidebar.markdown("""
-<div style="background-color: #1E88E5; padding: 5px; border-radius: 5px; margin-bottom: 20px;">
+<div style="padding: 5px; border-radius: 5px; margin-bottom: 20px;">
     <h2 style="color: white; margin: 0;">Configuration</h2>
 </div>
 """, unsafe_allow_html=True)
@@ -165,16 +159,11 @@ with col2:
     stats_placeholder = st.empty()
     stats_placeholder.info("Statistics will appear when analysis runs")
 
-# Create structured progress section
-st.markdown("""
-<div class="section-header">Progress</div>
-""", unsafe_allow_html=True)
-
 # Create columns for progress indicators
 progress_col1, progress_col2 = st.columns(2)
 
 with progress_col1:
-    st.markdown('<div class="progress-container">', unsafe_allow_html=True)
+    # st.markdown('<div class="progress-container">', unsafe_allow_html=True)
     st.markdown('#### 📚 Model Loading')
     model_status = st.empty()
     model_status.markdown('<span class="status-idle">Waiting to start...</span>', unsafe_allow_html=True)
@@ -183,7 +172,7 @@ with progress_col1:
     model_detail = st.empty()
     st.markdown('</div>', unsafe_allow_html=True)
     
-    st.markdown('<div class="progress-container">', unsafe_allow_html=True)
+    # st.markdown('<div class="progress-container">', unsafe_allow_html=True)
     st.markdown('#### 🔍 Feature Extraction')
     embedding_status = st.empty()
     embedding_status.markdown('<span class="status-idle">Waiting to start...</span>', unsafe_allow_html=True)
@@ -193,7 +182,7 @@ with progress_col1:
     st.markdown('</div>', unsafe_allow_html=True)
 
 with progress_col2:
-    st.markdown('<div class="progress-container">', unsafe_allow_html=True)
+    # st.markdown('<div class="progress-container">', unsafe_allow_html=True)
     st.markdown('#### 📊 Dataset Loading')
     dataset_status = st.empty()
     dataset_status.markdown('<span class="status-idle">Waiting to start...</span>', unsafe_allow_html=True)
@@ -202,7 +191,7 @@ with progress_col2:
     dataset_detail = st.empty()
     st.markdown('</div>', unsafe_allow_html=True)
     
-    st.markdown('<div class="progress-container">', unsafe_allow_html=True)
+    # st.markdown('<div class="progress-container">', unsafe_allow_html=True)
     st.markdown('#### 🧠 Probe Training')
     training_status = st.empty()
     training_status.markdown('<span class="status-idle">Waiting to start...</span>', unsafe_allow_html=True)
