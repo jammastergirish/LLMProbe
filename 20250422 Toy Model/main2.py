@@ -102,11 +102,11 @@ model_options = [
 ]
 
 # App inputs
-model_name = st.sidebar.selectbox("📊 Select model", model_options)
-dataset_source = st.sidebar.selectbox("📚 Select dataset", 
-                                    ["truefalse", "truthfulqa", "boolq", "arithmetic", "all"])
-use_control_tasks = st.sidebar.checkbox("🔄 Use control tasks", value=True)
-output_layer = st.sidebar.selectbox("🧠 Output layer", 
+model_name = st.sidebar.selectbox("📚 Model", model_options)
+dataset_source = st.sidebar.selectbox(" 📊 Dataset", 
+                                    ["truefalse", "truthfulqa", "boolq", "arithmetic", "fever", "all"])
+use_control_tasks = st.sidebar.checkbox("Use control tasks", value=True)
+output_layer = st.sidebar.selectbox("🧠 Model Output Layer", 
                                    ["resid_post", "attn_out", "mlp_out"])
 
 # Device selection
@@ -164,7 +164,7 @@ progress_col1, progress_col2 = st.columns(2)
 
 with progress_col1:
     # st.markdown('<div class="progress-container">', unsafe_allow_html=True)
-    st.markdown('#### 📚 Model Loading')
+    st.markdown('#### 📚 Load Model')
     model_status = st.empty()
     model_status.markdown('<span class="status-idle">Waiting to start...</span>', unsafe_allow_html=True)
     model_progress_bar = st.progress(0)
@@ -173,7 +173,7 @@ with progress_col1:
     st.markdown('</div>', unsafe_allow_html=True)
     
     # st.markdown('<div class="progress-container">', unsafe_allow_html=True)
-    st.markdown('#### 🔍 Feature Extraction')
+    st.markdown('#### 🔍 Create Representations')
     embedding_status = st.empty()
     embedding_status.markdown('<span class="status-idle">Waiting to start...</span>', unsafe_allow_html=True)
     embedding_progress_bar = st.progress(0)
@@ -183,7 +183,7 @@ with progress_col1:
 
 with progress_col2:
     # st.markdown('<div class="progress-container">', unsafe_allow_html=True)
-    st.markdown('#### 📊 Dataset Loading')
+    st.markdown('#### 📊 Load Dataset')
     dataset_status = st.empty()
     dataset_status.markdown('<span class="status-idle">Waiting to start...</span>', unsafe_allow_html=True)
     dataset_progress_bar = st.progress(0)
@@ -192,7 +192,7 @@ with progress_col2:
     st.markdown('</div>', unsafe_allow_html=True)
     
     # st.markdown('<div class="progress-container">', unsafe_allow_html=True)
-    st.markdown('#### 🧠 Probe Training')
+    st.markdown('#### 🧠 Train Probe')
     training_status = st.empty()
     training_status.markdown('<span class="status-idle">Waiting to start...</span>', unsafe_allow_html=True)
     training_progress_bar = st.progress(0)
@@ -317,6 +317,42 @@ def load_model_and_tokenizer(model_name, progress_callback):
 def load_dataset(dataset_source, progress_callback, max_samples=5000):
     """Load dataset with progress updates"""
     examples = []
+
+    if dataset_source in ["fever", "all"]:
+        progress_callback(0.9, "Preparing to load FEVER dataset...", 
+                        "Initializing FEVER dataset from Hugging Face")
+        try:
+            from datasets import load_dataset
+            # You can also use "validation"
+            fever = load_dataset(
+                "fever", 'v1.0', split="train", trust_remote_code=True)
+            start_examples = len(examples)
+            # add_log(f"FEVER EXAMPLE 1: {fever[0]}")
+
+            for idx, row in enumerate(fever):
+                label = row.get("label", None)
+                claim = row.get("claim", "")
+
+                if label == "SUPPORTS":
+                    examples.append({"text": claim, "label": 1})
+                elif label == "REFUTES":
+                    examples.append({"text": claim, "label": 0})
+                else:
+                    continue  # skip "NOT ENOUGH INFO" or None
+
+                if len(examples) - start_examples >= max_samples and dataset_source != "all":
+                    break
+
+                if idx % 1000 == 0:
+                    progress = 0.9 + (idx / min(len(fever), max_samples)) * 0.1
+                    progress_callback(progress, f"Processing FEVER example {idx+1}", 
+                                    f"Claim: {claim[:60]}... Label: {label}")
+
+            progress_callback(1.0, f"Loaded FEVER: {len(examples) - start_examples} examples added", 
+                            f"Total examples: {len(examples)}")
+        except Exception as e:
+            progress_callback(1.0, f"Error loading FEVER: {str(e)}", 
+                            "Continuing with other datasets if selected")
     
     if dataset_source in ["truthfulqa", "all"]:
         progress_callback(0.1, "Preparing to load TruthfulQA dataset...", 
@@ -917,28 +953,28 @@ def update_model_progress(progress, message, details=""):
     model_progress_bar.progress(progress)
     model_progress_text.markdown(f"**{message}**")
     model_detail.text(details)
-    add_log(f"Model Loading ({progress:.0%}): {message} - {details}")
+    add_log(f"Load Model ({progress:.0%}): {message} - {details}")
 
 def update_dataset_progress(progress, message, details=""):
     dataset_status.markdown('<span class="status-running">Running</span>', unsafe_allow_html=True)
     dataset_progress_bar.progress(progress)
     dataset_progress_text.markdown(f"**{message}**")
     dataset_detail.text(details)
-    add_log(f"Dataset Loading ({progress:.0%}): {message} - {details}")
+    add_log(f"Load Dataset ({progress:.0%}): {message} - {details}")
 
 def update_embedding_progress(progress, message, details=""):
     embedding_status.markdown('<span class="status-running">Running</span>', unsafe_allow_html=True)
     embedding_progress_bar.progress(progress)
     embedding_progress_text.markdown(f"**{message}**")
     embedding_detail.text(details)
-    add_log(f"Feature Extraction ({progress:.0%}): {message} - {details}")
+    add_log(f"Create Representations ({progress:.0%}): {message} - {details}")
 
 def update_training_progress(progress, message, details=""):
     training_status.markdown('<span class="status-running">Running</span>', unsafe_allow_html=True)
     training_progress_bar.progress(progress)
     training_progress_text.markdown(f"**{message}**")
     training_detail.text(details)
-    add_log(f"Probe Training ({progress:.0%}): {message} - {details}")
+    add_log(f"Train Probe ({progress:.0%}): {message} - {details}")
 
 def mark_complete(status_element, message="Complete"):
     status_element.markdown(f'<span class="status-success">{message}</span>', unsafe_allow_html=True)
@@ -977,7 +1013,7 @@ if run_button:
                 'Test Examples',
                 'Model Type',
                 'Model Layers',
-                'Hidden Dimension'
+                'Example'
             ],
             'Value': [
                 len(examples),
