@@ -17,78 +17,96 @@ from transformer_lens import HookedTransformer
 from transformers import AutoTokenizer
 
 
-def infer_from_any_layer(model: HookedTransformer, tokens: torch.Tensor, layer: int, pos: int = -1):
+def logit_lens_eval(model: HookedTransformer, tokens: torch.Tensor, layers: list[int], target_token: str = "8"):
     """
-    Infer logits from a given residual stream starting at any layer.
-    
-    Args:
-        model: HookedTransformer model (from TransformerLens).
-        tokens: Input tokens, shape [1, seq_len].
-        layer: The layer at which to resume forward pass.
-        pos: Token position (default: -1 for final token).
-        
-    Returns:
-        Logits from that point forward.
+    Apply logit lens to examine model's prediction at each layer by projecting
+    the residual stream directly into the vocabulary space.
     """
     with torch.no_grad():
         _, cache = model.run_with_cache(tokens)
 
-        # Extract the residual stream at the given layer
-        resid = cache["resid_post", layer]  # shape: [1, seq_len, d_model]
+        print(f"🔍 Target token: {repr(target_token)}\n")
+        target_id = model.tokenizer.encode(
+            target_token, add_special_tokens=False)[0]
 
-        # Forward through remaining blocks
-        x = resid
-        for i in range(layer, model.cfg.n_layers):
-            x = model.blocks[i](x)
+        for layer in layers:
+            # Get residual stream at that layer
+            resid = cache["resid_post", layer]  # shape: [1, seq_len, d_model]
 
-        # Final layernorm + unembed
-        x = model.ln_final(x)
-        logits = model.unembed(x)
-        return logits
+            # Apply final layer norm and unembedding (logit lens)
+            x = model.ln_final(resid)
+            logits = model.unembed(x)  # shape: [1, seq_len, vocab_size]
+
+            # Focus on the last token position
+            probs = torch.softmax(logits[0, -1], dim=0)
+            pred_id = probs.argmax().item()
+            pred = model.tokenizer.decode(pred_id)
+            confidence = probs[target_id].item()
+
+            print(
+                f"🔭 Layer {layer:2d}:\n"
+                f"\tPrediction = {repr(pred):>5}\n"
+                f"\tprob('{target_token}') = {confidence:.4f}\n\n"
+            )
 
 
 if __name__ == "__main__":
     model_name = "meta-llama/Llama-3.2-1B-Instruct"
-    model = HookedTransformer.from_pretrained(
-        model_name, device="cuda" if torch.cuda.is_available() else "mps")
+    # model_name = 'gpt2xl'
+    model_name = "meta-llama/Llama-4-Scout-17B-16E-Instruct-Original"
 
+    model = HookedTransformer.from_pretrained(
+        model_name, device="cuda" if torch.cuda.is_available() else "mps"
+    )
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    prompt = "What is 5 + 3? "
+
+    prompt = "The capital of France is"
+    target = " Paris"
+
     tokens = tokenizer(prompt, return_tensors="pt")[
         "input_ids"].to(model.cfg.device)
 
-    # Run inference from any layer (e.g., 10 or final)
-    # layer = model.cfg.n_layers - 1
-    layer = 10
-    logits = infer_from_any_layer(model, tokens, layer=layer)
+    # Evaluate using logit lens at selected layers
+    num_layers = model.cfg.n_layers
+    selected_layers = list(range(num_layers))
 
-    # next_token_id = logits[0, -1].argmax().item()
-    # prediction = tokenizer.decode(next_token_id)
-    # print(f"Token ID: {next_token_id}")
-    # print(f"Prediction at layer {layer}: {repr(prediction)}")
+    logit_lens_eval(model, tokens, layers=selected_layers, target_token=target)
 
-    # probs = torch.softmax(logits[0, -1], dim=0)
-    # topk = torch.topk(probs, k=10)
-    # print("Top predictions at layer", layer)
-    # for i in range(10):
-    #     token_id = topk.indices[i].item()
-    #     print(
-    #         f"{i+1}. {repr(tokenizer.decode(token_id))} — {topk.values[i].item():.4f}")
+    # ---------
 
+    from transformers import AutoTokenizer, AutoModelForMaskedLM
 
-    # Get probability distribution over the vocabulary
-    probs = torch.softmax(logits[0, -1], dim=0)
+    model = AutoModelForMaskedLM.from_pretrained(
+        "bert-base-uncased", output_hidden_states=True)
+    tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
 
-    # Check confidence for all digits 0 through 10
-    results = []
-    for i in range(11):
-        target_str = str(i)
-        target_id = tokenizer.encode(target_str, add_special_tokens=False)[0]
-        confidence = probs[target_id].item()
-        results.append((target_str, confidence))
+    prompt = "What is 5 + 3? 5 + 3 is [MASK]"
+    inputs = tokenizer(prompt, return_tensors="pt")
+    mask_index = (inputs["input_ids"] ==
+                tokenizer.mask_token_id).nonzero(as_tuple=True)[1]
 
-    # Sort and display
-    results.sort(key=lambda x: x[1], reverse=True)
-    print(f"🔢 Model confidence in each digit (top predictions):")
-    for digit, score in results:
-        print(f"  {digit}: {score:.6f}")
+    # with torch.no_grad():
+    #     outputs = model(**inputs)
+    #     logits = outputs.logits
+    #     probs = torch.softmax(logits[0, mask_index], dim=-1)
+
+    with torch.no_grad():
+        outputs = model(**inputs)
+        hidden_states = outputs.hidden_states
+
+    # layer_num = 5  # or any layer from 1 to 12
+    for layer_num in range(len(hidden_states)):
+        masked_hidden = hidden_states[layer_num][0,
+                                                mask_index]  # shape: [1, hidden_dim]
+
+        # Apply the MLM head manually
+        transform = model.cls
+        transformed = transform.predictions.transform(
+            masked_hidden)  # Linear + GELU + LayerNorm
+        logits = transform.predictions.decoder(transformed)  # vocab logits
+
+        # Softmax to get probabilities
+        probs = torch.softmax(logits, dim=-1)
+
+        target_id = tokenizer.convert_tokens_to_ids("8")
+        print(f"Layer {layer_num} prob('8'): {probs[0, target_id].item():.8f}")
