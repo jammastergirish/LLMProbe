@@ -130,7 +130,6 @@ with st.sidebar.expander("⚙️ Advanced Options"):
 # When the user clicks this button, the analysis will run
 run_button = st.sidebar.button("🚀 Run Analysis", type="primary", use_container_width=True)
 
-# Function to check if a model is decoder-only
 def is_decoder_only_model(model_name):
     decoder_keywords = ["gpt", "llama", "mistral", "pythia", "deepseek"]
     return any(keyword in model_name.lower() for keyword in decoder_keywords)
