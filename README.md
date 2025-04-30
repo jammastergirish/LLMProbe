@@ -2,9 +2,13 @@
 
 ## Running Locally
 
-`chmod +x run.sh`
+To run locally, you simply need to run the following command in Terminal. This will install the `uv` package manager, if you don't already have it, and start the Streamlit app.
+
 `./run.sh`
 
-## Running Remotely (for more compute power)
+(You may need to run `chmod +x run.sh` first.)
 
-I'd recommend setting up an instance on [RunPod](https://runpod.io?ref=avnw83xb), with the following instructions
+## Running Remotely
+
+You'll likely want to run the app remotely in order to harness more compute power. I'd recommend setting up an instance on [RunPod](https://runpod.io?ref=avnw83xb) as follows:
+
