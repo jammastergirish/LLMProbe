@@ -194,7 +194,7 @@ device_options.append("cpu")
 device_name = st.sidebar.selectbox("💻 Compute", device_options)
 device = torch.device(device_name)
 
-with st.sidebar.expander("⚙️ Linear Probe Options"):
+with st.sidebar.expander("⚙️ Probe Options"):
     train_epochs = st.number_input("Training epochs", min_value=10, max_value=500, value=100)
     learning_rate = st.number_input("Learning rate", min_value=0.0001, max_value=0.1, value=0.01, format="%.4f")
     max_samples = st.number_input("Max samples per dataset", min_value=100, max_value=10000, value=5000)
