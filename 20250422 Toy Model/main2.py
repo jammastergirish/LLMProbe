@@ -107,7 +107,7 @@ dataset_source = st.sidebar.selectbox(" 📊 Dataset",
 
 if dataset_source == "custom":
     custom_file = st.sidebar.file_uploader(
-        "Upload CSV file with 'statement' and 'label' columns",
+        "Upload CSV file with 'statement' and 'label' (containing 1 or 0) columns",
         type=["csv"],
         help="CSV should have 'statement' column for text and 'label' column with 1 (true) or 0 (false)"
     )
@@ -1083,47 +1083,52 @@ def save_fig(fig, filename):
     fig.savefig(filename)
     add_log(f"Saved figure to {filename}")
 
+
 # Main app logic
 if run_button:
     # Reset progress displays
-    add_log(f"Starting analysis with model: {model_name}, dataset: {dataset_source}")
-    
+    add_log(
+        f"Starting analysis with model: {model_name}, dataset: {dataset_source}")
+
     try:
         # 1. Load model with progress
         update_model_progress(0, "Loading model...", "Initializing")
-        tokenizer, model = load_model_and_tokenizer(model_name, update_model_progress)
+        tokenizer, model = load_model_and_tokenizer(
+            model_name, update_model_progress)
         mark_complete(model_status)
-        
+
         # 2. Load dataset with progress
         update_dataset_progress(0, "Loading dataset...", "Initializing")
-        
+
         # Pass custom_file if using custom dataset
         examples = []
         if dataset_source == "custom":
             if custom_file is not None:
                 examples = load_dataset(
-                    dataset_source, 
-                    update_dataset_progress, 
+                    dataset_source,
+                    update_dataset_progress,
                     max_samples=max_samples,
                     custom_file=custom_file  # Pass the custom file directly
                 )
             else:
-                update_dataset_progress(1.0, "No file uploaded", "Please upload a CSV file")
+                update_dataset_progress(
+                    1.0, "No file uploaded", "Please upload a CSV file")
                 st.error("Please upload a CSV file for custom dataset")
                 st.stop()
         else:
             examples = load_dataset(
-                dataset_source, 
-                update_dataset_progress, 
+                dataset_source,
+                update_dataset_progress,
                 max_samples=max_samples,
                 custom_file=None  # Or just omit the parameter
             )
-        
+
         # Check if we got any examples
         if len(examples) == 0:
-            st.error("No examples were loaded. Please check your dataset configuration.")
+            st.error(
+                "No examples were loaded. Please check your dataset configuration.")
             st.stop()
-            
+
         mark_complete(dataset_status)
         
         # Split data
