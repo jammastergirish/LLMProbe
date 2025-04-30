@@ -1,3 +1,4 @@
+import nest_asyncio
 import streamlit as st
 import torch
 import math
@@ -12,6 +13,8 @@ import warnings
 import time
 from datetime import datetime
 warnings.filterwarnings('ignore')
+
+nest_asyncio.apply()
 
 st.set_page_config(page_title="LLM Truth Detection Probing", layout="wide")
 
@@ -135,6 +138,8 @@ with st.sidebar.expander("⚙️ Linear Probe Options"):
     learning_rate = st.number_input("Learning rate", min_value=0.0001, max_value=0.1, value=0.01, format="%.4f")
     max_samples = st.number_input("Max samples per dataset", min_value=100, max_value=10000, value=5000)
     test_size = st.slider("Test split ratio", min_value=0.1, max_value=0.5, value=0.2, step=0.05)
+    batch_size = st.number_input("Batch size", min_value=1, max_value=64, value=16,
+                                 help="Larger batches are faster but use more memory. Use smaller values for large models.")
 
 run_button = st.sidebar.button("🚀 Run Analysis", type="primary", use_container_width=True)
 
@@ -564,6 +569,156 @@ def load_dataset(dataset_source, progress_callback, max_samples=5000, custom_fil
     progress_callback(1.0, f"Prepared {len(examples)} labeled examples for probing", 
                      f"Dataset preparation complete with {len(examples)} total examples")
     return examples
+
+def get_hidden_states_batched(examples, model, tokenizer, model_name, output_layer, 
+                            dataset_type="", return_layer=None, progress_callback=None, 
+                            batch_size=16):
+    """Extract hidden states with batching for better performance"""
+    all_hidden_states = []
+    all_labels = []
+    
+    is_decoder = is_decoder_only_model(model_name)
+    is_transformerlens = "HookedTransformer" in str(type(model))
+    
+    # Get model dimensions
+    if is_transformerlens:
+        n_layers = model.cfg.n_layers
+        d_model = model.cfg.d_model
+    else:
+        n_layers = getattr(model.config, "num_hidden_layers", 12) + 1
+        d_model = getattr(model.config, "hidden_size", 768)
+    
+    # Process in batches
+    num_batches = math.ceil(len(examples) / batch_size)
+    progress_callback(0, f"Processing {len(examples)} examples in {num_batches} batches", 
+                    f"Using batch size of {batch_size}")
+    
+    for batch_idx in range(0, len(examples), batch_size):
+        batch_end = min(batch_idx + batch_size, len(examples))
+        batch = examples[batch_idx:batch_end]
+        
+        # Update progress
+        progress = batch_idx / len(examples)
+        progress_callback(progress, f"Processing batch {batch_idx//batch_size + 1}/{num_batches}", 
+                         f"Examples {batch_idx+1}-{batch_end} of {len(examples)}")
+        
+        batch_texts = [ex["text"] for ex in batch]
+        batch_labels = [ex["label"] for ex in batch]
+        
+        # Process the batch based on model type
+        if is_transformerlens:
+            # TransformerLens doesn't support true batching with run_with_cache,
+            # so we process examples individually but still in batch chunks
+            batch_hidden_states = []
+            for text_idx, text in enumerate(batch_texts):
+                tokens = tokenizer.encode(text, return_tensors="pt").to(device)
+                _, cache = model.run_with_cache(tokens)
+                
+                pos = -1 if is_decoder else 0
+                layer_outputs = [
+                    cache[output_layer, layer_idx][0, pos, :]
+                    for layer_idx in range(n_layers)
+                ]
+                hidden_stack = torch.stack(layer_outputs)
+                batch_hidden_states.append(hidden_stack)
+        else:
+            # Standard transformers batching
+            if "qwen" in model_name.lower():
+                # Special handling for Qwen chat models
+                encoded_inputs = []
+                for text in batch_texts:
+                    messages = [{"role": "user", "content": text}]
+                    prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
+                    encoded_inputs.append(prompt)
+                
+                # Tokenize as a batch
+                inputs = tokenizer(encoded_inputs, padding=True, truncation=True, 
+                                  return_tensors="pt", max_length=128)
+            else:
+                # Standard tokenization for other models
+                inputs = tokenizer(batch_texts, padding=True, truncation=True, 
+                                  return_tensors="pt", max_length=128)
+            
+            # Move to device
+            inputs = {k: v.to(device) for k, v in inputs.items()}
+            
+            with torch.no_grad():
+                outputs = model(**inputs)
+                hidden_states = outputs.hidden_states
+                
+                batch_hidden_states = []
+                
+                # Process each example in the batch
+                for example_idx in range(len(batch)):
+                    # Extract embeddings for each layer
+                    example_layers = []
+                    
+                    for layer_idx, layer in enumerate(hidden_states):
+                        # Get representation based on selected strategy
+                        if is_decoder:
+                            # For decoder models, use the last token
+                            if hasattr(inputs, "attention_mask"):
+                                # Get position of last non-padding token
+                                seq_len = inputs["attention_mask"][example_idx].sum().item()
+                                token_repr = layer[example_idx, seq_len-1, :]
+                            else:
+                                # Just use last token
+                                token_repr = layer[example_idx, -1, :]
+                        elif output_layer == "CLS":
+                            # Use first token for BERT-like models
+                            token_repr = layer[example_idx, 0, :]
+                        elif output_layer == "mean":
+                            # Mean pooling (average all tokens)
+                            if hasattr(inputs, "attention_mask"):
+                                # Only consider non-padding tokens
+                                mask = inputs["attention_mask"][example_idx].unsqueeze(-1)
+                                token_repr = (layer[example_idx] * mask).sum(dim=0) / mask.sum()
+                            else:
+                                token_repr = layer[example_idx].mean(dim=0)
+                        elif output_layer == "max":
+                            # Max pooling
+                            if hasattr(inputs, "attention_mask"):
+                                # Apply mask to avoid including padding tokens
+                                mask = inputs["attention_mask"][example_idx].unsqueeze(-1)
+                                masked_layer = layer[example_idx] * mask - 1e9 * (1 - mask)
+                                token_repr = masked_layer.max(dim=0).values
+                            else:
+                                token_repr = layer[example_idx].max(dim=0).values
+                        elif output_layer.startswith("token_index_"):
+                            # Use specific token index
+                            index = int(output_layer.split("_")[-1])
+                            seq_len = inputs["attention_mask"][example_idx].sum().item() if hasattr(inputs, "attention_mask") else layer.size(1)
+                            safe_index = min(index, seq_len - 1)
+                            token_repr = layer[example_idx, safe_index, :]
+                        else:
+                            raise ValueError(f"Unsupported output layer: {output_layer}")
+                        
+                        example_layers.append(token_repr)
+                    
+                    # Stack layers for this example
+                    example_stack = torch.stack(example_layers)
+                    batch_hidden_states.append(example_stack)
+        
+        # Collect results from this batch
+        all_hidden_states.extend(batch_hidden_states)
+        all_labels.extend(batch_labels)
+        
+        # Small sleep to allow UI to update
+        time.sleep(0.01)
+    
+    # Convert to tensors
+    all_hidden_states = torch.stack(all_hidden_states).to(device)  # [num_examples, num_layers, hidden_dim]
+    all_labels = torch.tensor(all_labels).to(device)
+    
+    # Update to 100%
+    progress_callback(1.0, f"Completed processing all {len(examples)} examples", 
+                     f"Created tensor of shape {all_hidden_states.shape}")
+    
+    # Return full tensor or specific layer
+    if return_layer is not None:
+        return all_hidden_states[:, return_layer, :], all_labels
+    else:
+        return all_hidden_states, all_labels
 
 # Function to extract hidden states
 def get_hidden_states(examples, model, tokenizer, model_name, output_layer, dataset_type="", return_layer=None, progress_callback=None):
@@ -1142,16 +1297,16 @@ if run_button:
         update_embedding_progress(0, "Extracting embeddings for TRAIN set...", "Initializing")
         
         # Extract train embeddings
-        train_hidden_states, train_labels = get_hidden_states(
+        train_hidden_states, train_labels = get_hidden_states_batched(
             train_examples, model, tokenizer, model_name, output_layer, 
-            dataset_type="TRAIN", progress_callback=update_embedding_progress
+            dataset_type="TRAIN", progress_callback=update_embedding_progress, batch_size=batch_size
         )
         
         # Extract test embeddings
         update_embedding_progress(0, "Extracting embeddings for TEST set...", "Initializing")
-        test_hidden_states, test_labels = get_hidden_states(
+        test_hidden_states, test_labels = get_hidden_states_batched(
             test_examples, model, tokenizer, model_name, output_layer,
-            dataset_type="TEST", progress_callback=update_embedding_progress
+            dataset_type="TEST", progress_callback=update_embedding_progress, batch_size=batch_size
         )
         mark_complete(embedding_status)
         
