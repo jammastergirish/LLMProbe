@@ -1288,6 +1288,26 @@ if run_button:
     add_log(
         f"Starting analysis with model: {model_name}, dataset: {dataset_source}")
 
+    initial_stats_df = pd.DataFrame({
+        'Statistic': [
+            'Model', 
+            'Dataset',
+            'Compute Device',
+            'Batch Size',
+            'Control Tasks',
+            'Status'
+        ],
+        'Value': [
+            model_name,
+            dataset_source,
+            str(device),
+            str(batch_size),
+            str(use_control_tasks),
+            "Loading model and calculating detailed statistics..."
+        ]
+    })
+    stats_placeholder.table(initial_stats_df)
+
     try:
         # 1. Load model with progress
         update_model_progress(0, "Loading model...", "Initializing")
