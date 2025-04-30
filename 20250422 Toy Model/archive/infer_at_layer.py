@@ -112,22 +112,22 @@ if __name__ == "__main__":
 
     # ---------
 
-    model_name = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
+    # model_name = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
 
-    model = Llama4ForConditionalGeneration.from_pretrained(
-        model_name,
-        attn_implementation="flex_attention",
-        device_map="auto",
-        torch_dtype=torch.bfloat16,
-        output_hidden_states=True,  # ← required for logit lens
-    )
+    # model = Llama4ForConditionalGeneration.from_pretrained(
+    #     model_name,
+    #     attn_implementation="flex_attention",
+    #     device_map="auto",
+    #     torch_dtype=torch.bfloat16,
+    #     output_hidden_states=True,  # ← required for logit lens
+    # )
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    # tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-    prompt = "The capital of France is"
-    target = " Paris"
+    # prompt = "The capital of France is"
+    # target = " Paris"
 
-    logit_lens_eval_llama4(model, tokenizer, prompt, target)
+    # logit_lens_eval_llama4(model, tokenizer, prompt, target)
     # ---------
 
     from transformers import AutoTokenizer, AutoModelForMaskedLM
