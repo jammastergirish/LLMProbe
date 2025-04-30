@@ -10,6 +10,7 @@ from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
 import random
 import warnings
+import gc
 import time
 from datetime import datetime
 warnings.filterwarnings('ignore')
@@ -83,6 +84,67 @@ model_options = [
     "roberta-base",
     "gpt2"
 ]
+
+def estimate_memory_requirements(model, batch_size, seq_length=128):
+    """Estimate memory requirements dynamically from the model"""
+    import torch
+    import gc
+    
+    # Get model parameters
+    if hasattr(model, "config"):
+        # For HuggingFace models
+        hidden_dim = getattr(model.config, "hidden_size", 0)
+        num_layers = getattr(model.config, "num_hidden_layers", 0) + 1  # +1 for embeddings
+    elif hasattr(model, "cfg"):
+        # For TransformerLens models
+        hidden_dim = getattr(model.cfg, "d_model", 0)
+        num_layers = getattr(model.cfg, "n_layers", 0)
+    else:
+        return {"param_memory": "Unknown", "activation_memory": "Unknown", "total_memory": "Unknown"}
+    
+    # Count parameters
+    param_count = sum(p.numel() for p in model.parameters())
+    
+    # Get precision (default to FP32 if can't determine)
+    if next(model.parameters()).dtype == torch.float16:
+        precision = 2  # bytes for FP16
+    elif next(model.parameters()).dtype == torch.int8:
+        precision = 1  # bytes for INT8/quantized
+    else:
+        precision = 4  # bytes for FP32
+        
+    # Calculate memory in GB
+    param_memory = (param_count * precision) / (1024**3)
+    
+    # Activation memory estimate: batch_size × seq_length × hidden_dim × num_layers × precision
+    activation_memory = (batch_size * seq_length * hidden_dim * num_layers * precision) / (1024**3)
+    
+    # Estimate total memory (model + activations + overhead)
+    # Including a 20% overhead factor for other CUDA allocations
+    total_memory = (param_memory + activation_memory) * 1.2
+    
+    # Get current GPU memory usage if available
+    current_memory_usage = "N/A"
+    if torch.cuda.is_available():
+        try:
+            current_memory = torch.cuda.memory_allocated() / (1024**3)
+            current_memory_usage = f"{current_memory:.2f} GB"
+        except:
+            pass
+            
+    # Free any temporary tensors
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        
+    return {
+        "param_count": f"{param_count/1e9:.2f}B parameters",
+        "param_memory": f"{param_memory:.2f} GB",
+        "activation_memory": f"{activation_memory:.2f} GB",
+        "total_memory": f"{total_memory:.2f} GB",
+        "precision": f"{precision*8} bit" if precision < 4 else "32 bit",
+        "current_usage": current_memory_usage
+    }
 
 model_name = st.sidebar.selectbox("📚 Model", model_options)
 
@@ -1233,6 +1295,8 @@ if run_button:
             model_name, update_model_progress)
         mark_complete(model_status)
 
+        memory_estimates = estimate_memory_requirements(model, batch_size)
+
         # 2. Load dataset with progress
         update_dataset_progress(0, "Loading dataset...", "Initializing")
 
@@ -1275,20 +1339,32 @@ if run_button:
         # Update stats display
         stats_df = pd.DataFrame({
             'Statistic': [
-                'Total Examples', 
-                'Training Examples', 
+                'Total Examples',
+                'Training Examples',
                 'Test Examples',
                 'Model Type',
-                'Model Layers',
+                'Model Size',
+                'Parameter Memory',
+                'Activation Memory',
+                'Est. Total Memory',
+                'Current Memory Usage',
+                'Precision',
                 'Example'
             ],
             'Value': [
                 len(examples),
                 len(train_examples),
                 len(test_examples),
-                "Decoder-only" if is_decoder_only_model(model_name) else "Encoder-only/Encoder-decoder",
-                str(get_num_layers(model)),
-                str(train_examples[0]["text"][:50] + "...") if train_examples else "N/A"
+                "Decoder-only" if is_decoder_only_model(
+                    model_name) else "Encoder-only/Encoder-decoder",
+                memory_estimates["param_count"],
+                memory_estimates["param_memory"],
+                memory_estimates["activation_memory"],
+                memory_estimates["total_memory"],
+                memory_estimates["current_usage"],
+                memory_estimates["precision"],
+                str(train_examples[0]["text"][:50] +
+                    "...") if train_examples else "N/A"
             ]
         })
         stats_placeholder.table(stats_df)
