@@ -5,10 +5,12 @@ import math
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from sklearn.manifold import TSNE
+from utils.file_manager import create_run_folder, save_json, save_graph
+from datetime import datetime
 from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
 import random
+import os
 import warnings
 import gc
 import time
@@ -1281,6 +1283,8 @@ def save_fig(fig, filename):
 
 # Main app logic
 if run_button:
+    run_folder, run_id = create_run_folder()
+
     # Reset progress displays
     add_log(
         f"Starting analysis with model: {model_name}, dataset: {dataset_source}")
@@ -1696,6 +1700,44 @@ if run_button:
                                     st.markdown("No examples found")
         # Add completion message
         st.success(f"Analysis complete! Best layer: {best_layer} with accuracy {best_acc:.4f}")
+
+        # Save parameters
+        parameters = {
+            "model_name": model_name,
+            "dataset": dataset_source,
+            "output_activation": output_layer,
+            "device": device_name,
+            "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "use_control_tasks": use_control_tasks,
+            "train_epochs": train_epochs,
+            "learning_rate": learning_rate,
+            "max_samples": max_samples,
+            "test_size": test_size,
+            "batch_size": batch_size
+        }
+        save_json(parameters, os.path.join(run_folder, "parameters.json"))
+
+        # Save results
+        results_summary = {
+            "accuracy_by_layer": results['accuracies']
+        }
+        save_json(results_summary, os.path.join(run_folder, "results.json"))
+
+        # Save graphs
+        accuracy_plot_path = os.path.join(run_folder, "accuracy_plot.png")
+        save_graph(fig_acc if not use_control_tasks else fig_sel,
+                   accuracy_plot_path)
+
+        pca_path = os.path.join(run_folder, "pca_plot.png")
+        save_graph(fig_pca,
+                   pca_path)
+
+        proj_path = os.path.join(run_folder, "proj_plot.png")
+        save_graph(fig_proj,
+                   proj_path)
+
+
+        st.success(f"Run saved successfully! Run ID: {run_id}")
         
     except Exception as e:
         st.error(f"An error occurred: {str(e)}")
