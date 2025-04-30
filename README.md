@@ -1,1 +1,3 @@
-`uv run --with streamlit streamlit run Home.py`
+`./run.sh`
+
+(You may need to run `chmod +x run.sh` first.)
