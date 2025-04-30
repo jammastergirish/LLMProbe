@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from utils.file_manager import create_run_folder, save_json, save_graph
-from datetime import datetime
 from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
 import random
@@ -76,10 +75,17 @@ st.sidebar.markdown("""
 model_options = [
     "meta-llama/Llama-3.2-1B-Instruct",
     "meta-llama/Llama-3.2-1B", 
-    "meta-llama/Llama-3.2-3B-Instruct-SpinQuant_INT4_EO8",
+    "meta-llama/Llama-3.2-3B-Instruct",
+    "meta-llama/Llama-3.2-3B",
+    "google/gemma-2-2b-it",
+    "google/gemma-2-2b",
+    "Qwen/Qwen2.5-1.5B-Instruct",
+    "Qwen/Qwen2.5-32B-Instruct",
+    "Qwen/Qwen3-1.7B",
+    "Qwen/Qwen3-4B",
+    "Qwen/Qwen3-8B",
     "mistralai/Mistral-7B-v0.1",
     "deepseek-ai/DeepSeek-V3-Base",
-    "Qwen/Qwen2.5-32B-Instruct",
     "bert-base-uncased",
     "bert-large-uncased",
     "roberta-base",
@@ -119,7 +125,7 @@ def estimate_memory_requirements(model, batch_size, seq_length=128):
     activation_memory = (batch_size * seq_length * hidden_dim * num_layers * precision) / (1024**3)
     
     # Estimate total memory (model + activations + overhead)
-    # Including a 20% overhead factor for other CUDA allocations
+    # Including a 20% overhead factor for other allocations
     total_memory = (param_memory + activation_memory) * 1.2
     
     # Get current GPU memory usage if available
@@ -175,7 +181,7 @@ if dataset_source == "custom":
 use_control_tasks = st.sidebar.checkbox("Use control tasks", value=True)
 
 def is_decoder_only_model(model_name):
-    decoder_keywords = ["gpt", "llama", "mistral", "pythia", "deepseek", "qwen"]
+    decoder_keywords = ["gpt", "llama", "mistral", "pythia", "deepseek", "qwen", "gemma"]
     return any(keyword in model_name.lower() for keyword in decoder_keywords)
 
 if is_decoder_only_model(model_name):
@@ -226,6 +232,16 @@ with col2:
     # Create placeholder for stats that will be filled later
     stats_placeholder = st.empty()
     stats_placeholder.info("Statistics will appear when analysis runs")
+    with st.expander("📚 Understanding Memory Requirements"):
+        st.markdown("""
+        ### How Memory is Calculated
+        
+        - **Parameter Memory**: Calculated as `number of parameters × bytes per parameter`
+        - **Activation Memory**: Calculated as `batch_size × sequence_length × hidden_dimension × number_of_layers × bytes_per_value`
+        - **Total Memory**: Sum of parameter and activation memory, with a 20% overhead factor
+        
+        Larger batch sizes and sequence lengths will significantly increase memory usage. Consider reducing these values if you encounter out-of-memory errors.
+        """)
 
 # Create columns for progress indicators
 progress_col1, progress_col2 = st.columns(2)
@@ -1283,7 +1299,7 @@ def save_fig(fig, filename):
 
 # Main app logic
 if run_button:
-    run_folder, run_id = create_run_folder()
+    run_folder, run_id = create_run_folder(model_name = model_name, dataset = dataset_source)
 
     # Reset progress displays
     add_log(
@@ -1529,7 +1545,7 @@ if run_button:
                             false_proj = projection[test_labels == 0].cpu().numpy()
 
                             # Create histogram
-                            fig_proj, ax_proj = plt.subplots(figsize=(8, 3))
+                            fig_proj_individual, ax_proj = plt.subplots(figsize=(8, 3))
                             bins = np.linspace(
                                 min(projection.min().item(), -3),
                                 max(projection.max().item(), 3),
@@ -1549,7 +1565,7 @@ if run_button:
                             ax_proj.set_ylabel("Count")
                             ax_proj.legend()
 
-                            st.pyplot(fig_proj)
+                            st.pyplot(fig_proj_individual)
 
                     with col2:
                         st.subheader("Confusion Matrix")

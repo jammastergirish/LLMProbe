@@ -1,16 +1,52 @@
 import os
-import uuid
 import json
 import matplotlib.pyplot as plt
 import numpy as np
+from datetime import datetime
+import re
+
+
+def sanitize_for_filesystem(name):
+    """
+    Sanitize a string to be safely used as a folder or file name
+    by removing or replacing potentially problematic characters.
+    """
+    # Replace characters that are not allowed in most filesystems
+    # Windows is most restrictive, so we'll use its rules
+    # Disallowed: < > : " / \ | ? * and control characters
+
+    # First, replace slashes (already being done for model_name)
+    name = name.replace("/", "_").replace("\\", "_")
+
+    # Replace other problematic characters
+    name = re.sub(r'[<>:"|?*]', '_', name)
+
+    # Remove control characters
+    name = re.sub(r'[\x00-\x1f\x7f]', '', name)
+
+    # Trim leading/trailing whitespace and periods
+    # (periods at end of folder names can cause issues in Windows)
+    name = name.strip().strip('.')
+
+    # Maximum length consideration (255 bytes is common limit)
+    if len(name.encode('utf-8')) > 255:
+        # Truncate to fit within byte limit while preserving unicode characters
+        while len(name.encode('utf-8')) > 255:
+            name = name[:-1]
+
+    # Ensure the name is not empty after sanitization
+    if not name:
+        name = "unnamed"
+
+    return name
 
 SAVED_DATA_DIR = "saved_data"
 
 
-def create_run_folder():
+def create_run_folder(model_name, dataset):
     """Create a unique folder for the current run."""
     os.makedirs(SAVED_DATA_DIR, exist_ok=True)
-    run_id = str(uuid.uuid4())
+    run_id = sanitize_for_filesystem(f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{model_name}_{dataset}")
     run_folder = os.path.join(SAVED_DATA_DIR, run_id)
     os.makedirs(run_folder, exist_ok=True)
     return run_folder, run_id
