@@ -103,7 +103,30 @@ model_options = [
 model_name = st.sidebar.selectbox("📚 Model", model_options)
 
 dataset_source = st.sidebar.selectbox(" 📊 Dataset", 
-                                    ["truefalse", "truthfulqa", "boolq", "arithmetic", "fever", "all"])
+                                    ["truefalse", "truthfulqa", "boolq", "arithmetic", "fever", "custom"])
+
+if dataset_source == "custom":
+    custom_file = st.sidebar.file_uploader(
+        "Upload CSV file with 'statement' and 'label' columns",
+        type=["csv"],
+        help="CSV should have 'statement' column for text and 'label' column with 1 (true) or 0 (false)"
+    )
+    
+    # Preview of uploaded data
+    if custom_file is not None:
+        try:
+            import pandas as pd
+            df_preview = pd.read_csv(custom_file)
+            if 'statement' not in df_preview.columns or 'label' not in df_preview.columns:
+                st.sidebar.error("CSV must contain 'statement' and 'label' columns")
+            else:
+                st.sidebar.success(f"Loaded {len(df_preview)} examples")
+                st.sidebar.dataframe(df_preview.head(3), use_container_width=True)
+                # Reset file pointer for later use
+                custom_file.seek(0)
+        except Exception as e:
+            st.sidebar.error(f"Error reading CSV: {str(e)}")
+
 use_control_tasks = st.sidebar.checkbox("Use control tasks", value=True)
 
 def is_decoder_only_model(model_name):
@@ -312,9 +335,57 @@ def load_model_and_tokenizer(model_name, progress_callback):
     
     return tokenizer, model
 
-def load_dataset(dataset_source, progress_callback, max_samples=5000):
+
+def load_dataset(dataset_source, progress_callback, max_samples=5000, custom_file=None):
     """Load dataset with progress updates"""
     examples = []
+
+    if dataset_source == "custom" and custom_file is not None:
+        progress_callback(0.1, "Loading custom dataset...",
+                          "Processing uploaded CSV file")
+        try:
+            import pandas as pd
+            custom_df = pd.read_csv(custom_file)
+
+            if 'statement' not in custom_df.columns or 'label' not in custom_df.columns:
+                progress_callback(1.0, "Error: CSV must contain 'statement' and 'label' columns",
+                                  "Please check your CSV format and try again")
+                return []
+
+            # Clean and validate data
+            custom_df = custom_df.dropna(subset=['statement', 'label'])
+
+            # Ensure labels are 0 or 1
+            if not all(label in [0, 1] for label in custom_df['label'].unique()):
+                progress_callback(1.0, "Error: Labels must be 0 or 1",
+                                  "Please check your labels and try again")
+                return []
+
+            # Process each row
+            for idx, row in enumerate(custom_df.itertuples()):
+                if idx % 10 == 0:
+                    progress = 0.1 + (idx / len(custom_df)) * 0.9
+                    progress_callback(progress, f"Processing custom example {idx+1}/{len(custom_df)}",
+                                      f"Statement: {row.statement[:50]}...")
+
+                examples.append({
+                    "text": row.statement,
+                    "label": int(row.label)
+                })
+
+                # Limit dataset size if needed
+                if len(examples) >= max_samples:
+                    break
+
+            progress_callback(1.0, f"Loaded custom dataset: {len(examples)} examples",
+                              "Custom dataset processed successfully")
+
+            return examples
+
+        except Exception as e:
+            progress_callback(1.0, f"Error loading custom dataset: {str(e)}",
+                              "Please check your CSV format and try again")
+            return []
 
     if dataset_source in ["fever", "all"]:
         progress_callback(0.9, "Preparing to load FEVER dataset...", 
@@ -1025,7 +1096,34 @@ if run_button:
         
         # 2. Load dataset with progress
         update_dataset_progress(0, "Loading dataset...", "Initializing")
-        examples = load_dataset(dataset_source, update_dataset_progress, max_samples=max_samples)
+        
+        # Pass custom_file if using custom dataset
+        examples = []
+        if dataset_source == "custom":
+            if custom_file is not None:
+                examples = load_dataset(
+                    dataset_source, 
+                    update_dataset_progress, 
+                    max_samples=max_samples,
+                    custom_file=custom_file  # Pass the custom file directly
+                )
+            else:
+                update_dataset_progress(1.0, "No file uploaded", "Please upload a CSV file")
+                st.error("Please upload a CSV file for custom dataset")
+                st.stop()
+        else:
+            examples = load_dataset(
+                dataset_source, 
+                update_dataset_progress, 
+                max_samples=max_samples,
+                custom_file=None  # Or just omit the parameter
+            )
+        
+        # Check if we got any examples
+        if len(examples) == 0:
+            st.error("No examples were loaded. Please check your dataset configuration.")
+            st.stop()
+            
         mark_complete(dataset_status)
         
         # Split data
