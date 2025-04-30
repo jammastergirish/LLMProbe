@@ -1,18 +1,3 @@
-# /// script
-# dependencies = [
-# "streamlit",
-#   "torch",
-#   "transformers",
-#   "datasets",
-#   "matplotlib",
-#   "scikit-learn",
-#   "protobuf",
-#   "tiktoken",
-#   "blobfile",
-#  "accelerate",
-# "transformer-lens"
-# ]
-# ///
 import streamlit as st
 import torch
 import math
@@ -24,13 +9,9 @@ from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
 import random
 import warnings
-import sys
-import os
 import time
 from datetime import datetime
 warnings.filterwarnings('ignore')
-
-# uv run --with streamlit --with torch  --with transformers --with datasets --with matplotlib --with scikit-learn --with protobug --with tiktoken --with blobfile --with accelerate --with transformer-lens streamlit run  main2.py
 
 st.set_page_config(page_title="LLM Truth Detection Probing", layout="wide")
 

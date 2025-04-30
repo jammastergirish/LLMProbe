@@ -1,36 +1,16 @@
-# /// script
-# dependencies = [
-#   "torch",
-#   "transformers",
-#   "datasets",
-#   "matplotlib",
-#   "scikit-learn",
-#   "protobuf",
-#   "tiktoken",
-#   "blobfile",
-#  "accelerate",
-# "transformer-lens",
-# "streamlit",
-#  "pandas",
-# ]
-# ///
-
 import streamlit as st
 import torch
 from transformers import (
     AutoTokenizer,
     AutoModelForMaskedLM,
     AutoModelForCausalLM,
-    Llama4ForConditionalGeneration,
+    # Llama4ForConditionalGeneration,
 )
 from transformer_lens import HookedTransformer
 import pandas as pd
 import os
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = '1'
-
-# uv run --with streamlit --with torch  --with transformers --with datasets --with matplotlib --with scikit-learn --with protobug --with tiktoken --with blobfile --with accelerate --with transformer-lens streamlit run  infer_layer.py
-
 
 def logit_lens_eval_llama3(model, tokenizer, prompt, target_token):
     import pandas as pd
