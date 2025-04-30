@@ -17,9 +17,8 @@ warnings.filterwarnings('ignore')
 
 nest_asyncio.apply()
 
-st.set_page_config(page_title="LLM Truth Detection Probing", layout="wide")
+st.set_page_config(page_title="LLMProbe", layout="wide")
 
-# Main title with custom styling
 st.markdown("""
 <style>
     .main-title {
@@ -87,14 +86,12 @@ model_options = [
 
 def estimate_memory_requirements(model, batch_size, seq_length=128):
     """Estimate memory requirements dynamically from the model"""
-    import torch
-    import gc
     
     # Get model parameters
     if hasattr(model, "config"):
         # For HuggingFace models
         hidden_dim = getattr(model.config, "hidden_size", 0)
-        num_layers = getattr(model.config, "num_hidden_layers", 0) + 1  # +1 for embeddings
+        num_layers = getattr(model.config, "num_hidden_layers", 0) + 1
     elif hasattr(model, "cfg"):
         # For TransformerLens models
         hidden_dim = getattr(model.cfg, "d_model", 0)
