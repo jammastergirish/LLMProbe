@@ -104,21 +104,20 @@ model_options = [
 
 # App inputs
 model_name = st.sidebar.selectbox("📚 Model", model_options)
-dataset_source = st.sidebar.selectbox(" 📊 Dataset", 
-                                    ["truefalse", "truthfulqa", "boolq", "arithmetic", "fever", "all"])
-use_control_tasks = st.sidebar.checkbox("Use control tasks", value=True)
-
-decoder_layer_options = ["resid_post", "attn_out", "mlp_out"]
-encoder_summary_options = ["CLS", "mean", "max", "token_index_0"]
 
 def is_decoder_only_model(model_name):
     decoder_keywords = ["gpt", "llama", "mistral", "pythia", "deepseek", "qwen"]
     return any(keyword in model_name.lower() for keyword in decoder_keywords)
 
+dataset_source = st.sidebar.selectbox(" 📊 Dataset", 
+                                    ["truefalse", "truthfulqa", "boolq", "arithmetic", "fever", "all"])
+use_control_tasks = st.sidebar.checkbox("Use control tasks", value=True)
+
 if is_decoder_only_model(model_name):
-    output_layer = st.sidebar.selectbox("🧠 Output Activation", decoder_layer_options)
+    output_layer = st.sidebar.selectbox(
+        "🧠 Output Activation", ["resid_post", "attn_out", "mlp_out"])
 else:
-    output_layer = st.sidebar.selectbox("🧠 Embedding Strategy", encoder_summary_options)
+    output_layer = st.sidebar.selectbox("🧠 Embedding Strategy", ["CLS", "mean", "max", "token_index_0"])
 
 # Device selection
 device_options = []
@@ -131,17 +130,37 @@ device_options.append("cpu")
 device_name = st.sidebar.selectbox("💻 Compute", device_options)
 device = torch.device(device_name)
 
-# Advanced options expander
-with st.sidebar.expander("⚙️ Linear Probe Options"):
-    train_epochs = st.number_input("Training epochs", min_value=10, max_value=500, value=100)
-    learning_rate = st.number_input("Learning rate", min_value=0.0001, max_value=0.1, value=0.01, format="%.4f")
-    max_samples = st.number_input("Max samples per dataset", min_value=100, max_value=10000, value=5000)
-    test_size = st.slider("Test split ratio", min_value=0.1, max_value=0.5, value=0.2, step=0.05)
+with st.sidebar.expander("⚙️ Probe Configuration"):
+    probe_type = st.selectbox("Probe type", ["Linear", "2-layer MLP"])
 
-# When the user clicks this button, the analysis will run
+    # Add MLP-specific options that only appear when MLP is selected
+    if probe_type == "2-layer MLP":
+        hidden_dim_factor = st.slider(
+            "Hidden layer size (fraction of input dim)",
+            min_value=0.1,
+            max_value=2.0,
+            value=0.5,
+            step=0.1,
+            help="Size of hidden layer as a fraction of input dimension"
+        )
+    else:
+        hidden_dim_factor = 0.5  # Default value used if needed
+
+    loss_fn = st.selectbox("Loss function", ["BCE", "BCEWithLogits"])
+    train_epochs = st.number_input(
+        "Training epochs", min_value=10, max_value=500, value=100)
+    learning_rate = st.number_input(
+        "Learning rate", min_value=0.0001, max_value=0.1, value=0.01, format="%.4f")
+    weight_decay = st.number_input(
+        "Weight decay (L2)", min_value=0.0, max_value=0.1, value=0.0, step=0.001)
+    dropout_rate = st.slider("Dropout", 0.0, 0.5, 0.0, step=0.05)
+    max_samples = st.number_input(
+        "Max samples per dataset", min_value=100, max_value=10000, value=5000)
+    test_size = st.slider("Test split ratio", min_value=0.1,
+                          max_value=0.5, value=0.2, step=0.05)
+
 run_button = st.sidebar.button("🚀 Run Analysis", type="primary", use_container_width=True)
 
-# Create a dashboard layout
 col1, col2 = st.columns([3, 2])
 
 with col1:
@@ -481,20 +500,20 @@ def load_dataset(dataset_source, progress_callback, max_samples=5000):
             progress_callback(0.85, f"Error loading TrueFalse: {str(e)}", 
                              "Continuing with other datasets if selected")
     
-    if dataset_source in ["arithmetic", "all"]:
-        progress_callback(0.85, "Generating arithmetic dataset...", 
-                         "Creating synthetic true/false arithmetic examples")
+    if dataset_source in ["arithmetic-summation", "all"]:
+        progress_callback(0.85, "Generating arithmetic-summation dataset...", 
+                         "Creating synthetic true/false arithmetic-summation examples")
         
-        def generate_arithmetic_dataset(n=5000):
+        def generate_arithmetic_summation_dataset(n=5000):
             data = []
             for i in range(n):
                 if i % 100 == 0:
                     progress = 0.85 + (i / n) * 0.1
-                    progress_callback(progress, f"Generating arithmetic example {i+1}/{n}", 
-                                     "Creating balanced true/false arithmetic statements")
+                    progress_callback(progress, f"Generating arithmetic-summation example {i+1}/{n}", 
+                                     "Creating balanced true/false arithmetic-summation statements")
                 
-                a = random.randint(0, 100)
-                b = random.randint(0, 100)
+                a = random.randint(0, 10)
+                b = random.randint(0, 10)
                 
                 # 50% chance of being true
                 if len(data) % 2 == 0:
@@ -510,12 +529,12 @@ def load_dataset(dataset_source, progress_callback, max_samples=5000):
             
             return data
         
-        arithmetic = generate_arithmetic_dataset(min(5000, max_samples))
+        arithmetic = generate_arithmetic_summation_dataset(min(5000, max_samples))
         start_examples = len(examples)
         examples.extend(arithmetic)
         
-        progress_callback(0.95, f"Generated arithmetic dataset: {len(arithmetic)} examples", 
-                         f"Added {len(arithmetic)} arithmetic examples")
+        progress_callback(0.95, f"Generated arithmetic-summation dataset: {len(arithmetic)} examples", 
+                         f"Added {len(arithmetic)} arithmetic-summation examples")
     
     progress_callback(1.0, f"Prepared {len(examples)} labeled examples for probing", 
                      f"Dataset preparation complete with {len(examples)} total examples")
@@ -648,22 +667,53 @@ def get_hidden_states(examples, model, tokenizer, model_name, output_layer, data
         return all_hidden_states, labels  # (N, L, D)
 
 class LinearProbe(torch.nn.Module):
-    def __init__(self, dim):
+    def __init__(self, dim, dropout=0.0):
         super().__init__()
+        self.dropout = torch.nn.Dropout(dropout)
         self.linear = torch.nn.Linear(dim, 1)
     
     def forward(self, x):
-        return torch.sigmoid(self.linear(x)).squeeze(-1)
+        x = self.dropout(x)
+        return self.linear(x).squeeze(-1)  # Squeeze to remove final dimension
 
-def train_probe(features, labels, epochs=100, lr=1e-2):
+class MLPProbe(torch.nn.Module):
+    def __init__(self, dim, hidden_dim=None, dropout=0.0):
+        super().__init__()
+        if hidden_dim is None:
+            hidden_dim = max(64, dim // 2)  # Default to half the input size or at least 64
+            
+        self.model = torch.nn.Sequential(
+            torch.nn.Dropout(dropout),
+            torch.nn.Linear(dim, hidden_dim),
+            torch.nn.ReLU(),
+            torch.nn.Dropout(dropout),
+            torch.nn.Linear(hidden_dim, 1)
+        )
+
+    def forward(self, x):
+        return self.model(x).squeeze(-1)  # Remove final dimension for proper loss calculation
+
+
+def train_probe(features, labels, epochs=100, lr=1e-2,
+                loss_fn="BCE", probe_type="Linear",
+                dropout=0.0, weight_decay=0.0):
     probe = LinearProbe(features.shape[1]).to(device)
-    criterion = torch.nn.BCELoss()
+    if loss_fn == "BCEWithLogits":
+        criterion = torch.nn.BCEWithLogitsLoss()
+    else:
+        criterion = torch.nn.BCELoss()
     optimizer = torch.optim.Adam(probe.parameters(), lr=lr)
     
     for epoch in range(epochs):
         optimizer.zero_grad()
-        outputs = probe(features)
-        loss = criterion(outputs, labels.float())
+        
+        raw_outputs = probe(features)
+
+        if loss_fn == "BCEWithLogits":
+            loss = criterion(raw_outputs, train_labels.float())
+        else:
+            loss = criterion(torch.sigmoid(raw_outputs), train_labels.float())
+        
         loss.backward()
         optimizer.step()
     
@@ -677,8 +727,13 @@ def get_num_layers(model):
     else:
         raise AttributeError("Cannot determine number of layers for this model")
 
-def train_and_evaluate_model(train_hidden_states, train_labels, test_hidden_states, test_labels, 
-                            num_layers, use_control_tasks, progress_callback=None, epochs=100, lr=0.01):
+def train_and_evaluate_model(
+    train_hidden_states, train_labels, 
+    test_hidden_states, test_labels, 
+    num_layers, use_control_tasks,
+    probe_type="Linear", loss_fn="BCE", dropout=0.0, weight_decay=0.0,
+    progress_callback=None, epochs=100, lr=0.01, hidden_dim=None
+):
     """Train probes across all layers and evaluate performance"""
     probes = []
     accuracies = []
@@ -696,21 +751,41 @@ def train_and_evaluate_model(train_hidden_states, train_labels, test_hidden_stat
         train_feats = train_hidden_states[:, layer, :]
         test_feats = test_hidden_states[:, layer, :]
         
-        # Train probe with epoch progress
-        probe = LinearProbe(train_feats.shape[1]).to(device)
-        criterion = torch.nn.BCELoss()
-        optimizer = torch.optim.Adam(probe.parameters(), lr=lr)
+        # Initialize probe based on type
+        if probe_type == "2-layer MLP":
+            # Get hidden dimension size if not provided
+            if hidden_dim is None:
+                hidden_dim = max(64, train_feats.shape[1] // 2)
+            probe = MLPProbe(train_feats.shape[1], hidden_dim=hidden_dim, dropout=dropout).to(device)
+        else:
+            probe = LinearProbe(train_feats.shape[1], dropout=dropout).to(device)
+            
+        # Choose appropriate loss function
+        if loss_fn == "BCEWithLogits":
+            criterion = torch.nn.BCEWithLogitsLoss()
+        else:
+            criterion = torch.nn.BCELoss()
+            
+        optimizer = torch.optim.Adam(probe.parameters(), lr=lr, weight_decay=weight_decay)
         
         for epoch in range(epochs):
             if epoch % 10 == 0 or epoch == epochs - 1:
                 epoch_progress = main_progress + (epoch / epochs) / num_layers
                 progress_callback(epoch_progress, 
                                  f"Layer {layer+1}/{num_layers}: Epoch {epoch+1}/{epochs}", 
-                                 f"Training linear probe for truth detection")
+                                 f"Training {probe_type} probe for truth detection")
             
             optimizer.zero_grad()
             outputs = probe(train_feats)
-            loss = criterion(outputs, train_labels.float())
+            
+            # Apply appropriate loss calculation based on loss function
+            if loss_fn == "BCEWithLogits":
+                loss = criterion(outputs, train_labels.float())
+            else:
+                # Apply sigmoid if using BCE
+                outputs = torch.sigmoid(outputs)
+                loss = criterion(outputs, train_labels.float())
+                
             loss.backward()
             optimizer.step()
         
@@ -721,10 +796,17 @@ def train_and_evaluate_model(train_hidden_states, train_labels, test_hidden_stat
         # Evaluate on test set
         with torch.no_grad():
             test_outputs = probe(test_feats)
-            test_loss = criterion(test_outputs, test_labels.float())
+
+            if loss_fn == "BCEWithLogits":
+                test_loss = criterion(test_outputs, test_labels.float())
+                test_probs = torch.sigmoid(test_outputs)
+            else:
+                test_probs = torch.sigmoid(test_outputs)
+                test_loss = criterion(test_probs, test_labels.float())
+
             test_losses.append(test_loss.item())
-            
-            preds = (test_outputs > 0.5).long()
+
+            preds = (test_probs > 0.5).long()
             acc = (preds == test_labels).float().mean().item()
             accuracies.append(acc)
         
@@ -740,20 +822,41 @@ def train_and_evaluate_model(train_hidden_states, train_labels, test_hidden_stat
                               f"Training with shuffled labels to measure selectivity")
             
             shuffled_labels = train_labels[torch.randperm(train_labels.size(0))]
-            ctrl_probe, _ = train_probe(train_feats, shuffled_labels, epochs=epochs, lr=lr)
             
+            # Use the same probe type for control tasks
+            if probe_type == "2-layer MLP":
+                ctrl_probe = MLPProbe(train_feats.shape[1], hidden_dim=hidden_dim, dropout=dropout).to(device)
+            else:
+                ctrl_probe = LinearProbe(train_feats.shape[1], dropout=dropout).to(device)
+
+            ctrl_optimizer = torch.optim.Adam(ctrl_probe.parameters(), lr=lr, weight_decay=weight_decay)
+
+            for epoch in range(epochs):
+                ctrl_optimizer.zero_grad()
+                ctrl_outputs = ctrl_probe(train_feats)
+
+                if loss_fn == "BCEWithLogits":
+                    ctrl_loss = criterion(ctrl_outputs, shuffled_labels.float())
+                else:
+                    ctrl_probs = torch.sigmoid(ctrl_outputs)
+                    ctrl_loss = criterion(ctrl_probs, shuffled_labels.float())
+
+                ctrl_loss.backward()
+                ctrl_optimizer.step()
+
             with torch.no_grad():
                 ctrl_outputs = ctrl_probe(test_feats)
-                ctrl_preds = (ctrl_outputs > 0.5).long()
+                if loss_fn == "BCEWithLogits":
+                    ctrl_probs = torch.sigmoid(ctrl_outputs)
+                else:
+                    ctrl_probs = torch.sigmoid(ctrl_outputs)
+                    
+                ctrl_preds = (ctrl_probs > 0.5).long()
                 ctrl_acc = (ctrl_preds == test_labels).float().mean().item()
                 control_accuracies.append(ctrl_acc)
-                
+
                 selectivity = acc - ctrl_acc
                 selectivities.append(selectivity)
-            
-            progress_callback(main_progress + 0.9/num_layers, 
-                             f"Layer {layer+1}/{num_layers}: Control accuracy: {ctrl_acc:.4f}", 
-                             f"Selectivity: {selectivity:.4f} (Acc={acc:.4f} - Control={ctrl_acc:.4f})")
     
     # Update to 100%
     progress_callback(1.0, "Completed training all probes", 
@@ -769,7 +872,6 @@ def train_and_evaluate_model(train_hidden_states, train_labels, test_hidden_stat
     }
     
     return results
-
 def plot_accuracy_by_layer(accuracies, model_name, dataset_source):
     """Plot accuracy by layer"""
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -811,39 +913,42 @@ def plot_selectivity_by_layer(selectivities, accuracies, control_accuracies, mod
     plt.tight_layout()
     return fig
 
+
 def plot_pca_grid(test_hidden_states, test_labels, probes, model_name, dataset_source):
     """Generate PCA grid visualization"""
     num_layers = test_hidden_states.shape[1]
     cols = math.ceil(math.sqrt(num_layers))
     rows = math.ceil(num_layers / cols)
-    
+
     fig, axs = plt.subplots(rows, cols, figsize=(cols * 4, rows * 3.5))
     if rows * cols > 1:
         axs = axs.flatten()
     else:
         axs = np.array([axs])
-    
+
     for layer in range(min(num_layers, rows * cols)):
         feats = test_hidden_states[:, layer, :].cpu().numpy()
         lbls = test_labels.cpu().numpy()
-        
+
         # PCA
         pca = PCA(n_components=2)
         feats_2d = pca.fit_transform(feats)
-        
+
         # Probing predictions
         probe = probes[layer]
         with torch.no_grad():
-            preds = (probe(torch.tensor(feats).to(device)) > 0.5).long().cpu().numpy()
-        
+            outputs = probe(torch.tensor(feats).float().to(device))
+            probs = torch.sigmoid(outputs)
+            preds = (probs > 0.5).long().cpu().numpy()
+
         acc = (preds == lbls).mean()
-        
+
         # Calculate explained variance
         expl_var = sum(pca.explained_variance_ratio_) * 100
-        
+
         # Get correct subplot
         ax = axs[layer]
-        
+
         # Plot PCA
         true_points = ax.scatter(
             feats_2d[lbls == 1][:, 0],
@@ -865,7 +970,7 @@ def plot_pca_grid(test_hidden_states, test_labels, probes, model_name, dataset_s
             edgecolors='w',
             linewidths=0.5
         )
-        
+
         # Highlight misclassified points
         misclassified = preds != lbls
         if np.any(misclassified):
@@ -879,33 +984,56 @@ def plot_pca_grid(test_hidden_states, test_labels, probes, model_name, dataset_s
                 alpha=0.8,
                 label="Misclassified"
             )
-        
+
         ax.set_title(f"Layer {layer} (Acc={acc:.3f}, Var={expl_var:.1f}%)")
         ax.set_xticks([])
         ax.set_yticks([])
-        
+
         # Add decision boundary if possible
         try:
             # Create a mesh grid
-            x_min, x_max = feats_2d[:, 0].min() - 0.5, feats_2d[:, 0].max() + 0.5
-            y_min, y_max = feats_2d[:, 1].min() - 0.5, feats_2d[:, 1].max() + 0.5
+            x_min, x_max = feats_2d[:, 0].min(
+            ) - 0.5, feats_2d[:, 0].max() + 0.5
+            y_min, y_max = feats_2d[:, 1].min(
+            ) - 0.5, feats_2d[:, 1].max() + 0.5
             xx, yy = np.meshgrid(np.linspace(x_min, x_max, 100),
                                  np.linspace(y_min, y_max, 100))
-            
+
             # Transform back to high-dimensional space (approximate)
             grid_points = np.c_[xx.ravel(), yy.ravel()]
             high_dim_grid = pca.inverse_transform(grid_points)
-            
+
             # Apply the probe
             with torch.no_grad():
-                Z = probe(torch.tensor(high_dim_grid).float().to(device)).cpu().numpy()
+                Z = probe(torch.tensor(high_dim_grid).float().to(device))
+                Z = torch.sigmoid(Z).cpu().numpy()
             Z = Z.reshape(xx.shape)
-            
+
             # Plot the decision boundary
-            ax.contour(xx, yy, Z, levels=[0.5], colors='k', alpha=0.5, linestyles='--')
+            ax.contour(xx, yy, Z, levels=[0.5],
+                       colors='k', alpha=0.5, linestyles='--')
         except Exception as e:
             # Skip decision boundary if it fails
             pass
+
+    # Add legend to the first subplot with room
+    if num_layers > 0:
+        if rows * cols > num_layers:
+            # Find an empty subplot
+            empty_ax = axs[num_layers]
+            empty_ax.axis('off')
+            empty_ax.legend([true_points, false_points],
+                            ['True', 'False'],
+                            fontsize=12, loc='center')
+        else:
+            # Add legend to the first subplot
+            axs[0].legend(fontsize=8, loc='best')
+
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.9)
+    plt.suptitle(f"PCA Visualization of Representations by Layer ({model_name})",
+                 fontsize=16, y=0.98)
+    return fig
     
     # Add legend to the first subplot with room
     if num_layers > 0:
@@ -929,7 +1057,7 @@ def plot_pca_grid(test_hidden_states, test_labels, probes, model_name, dataset_s
 def plot_truth_projections(test_hidden_states, test_labels, probes):
     """Plot truth direction projection histograms"""
     num_layers = test_hidden_states.shape[1]
-    rows = cols = math.ceil(num_layers**0.5)
+    rows = cols = math.ceil(math.sqrt(num_layers))
     
     fig, axs = plt.subplots(rows, cols, figsize=(cols * 4, rows * 3.5))
     axs = axs.flatten()
@@ -940,10 +1068,19 @@ def plot_truth_projections(test_hidden_states, test_labels, probes):
         
         probe = probes[layer]
         with torch.no_grad():
-            projection = torch.matmul(feats, probe.linear.weight[0])  # shape: [N]
-            probs = torch.sigmoid(projection)
+            # Get the raw outputs of the probe
+            outputs = probe(feats)
+            probs = torch.sigmoid(outputs)
             preds = (probs > 0.5).long()
             acc = (preds == lbls).float().mean().item()
+            
+            # For visualization purposes:
+            if hasattr(probe, 'linear'):  # For LinearProbe
+                # Project onto the weight vector of the linear layer
+                projection = outputs  # This is already the projection for a linear probe
+            else:  # For MLPProbe
+                # For MLP, we just use the raw outputs
+                projection = outputs
         
         ax = axs[layer]
         
@@ -1020,32 +1157,37 @@ def save_fig(fig, filename):
     fig.savefig(filename)
     add_log(f"Saved figure to {filename}")
 
+
+# Main app logic
 # Main app logic
 if run_button:
     # Reset progress displays
-    add_log(f"Starting analysis with model: {model_name}, dataset: {dataset_source}")
-    
+    add_log(
+        f"Starting analysis with model: {model_name}, dataset: {dataset_source}")
+
     try:
         # 1. Load model with progress
         update_model_progress(0, "Loading model...", "Initializing")
-        tokenizer, model = load_model_and_tokenizer(model_name, update_model_progress)
+        tokenizer, model = load_model_and_tokenizer(
+            model_name, update_model_progress)
         mark_complete(model_status)
-        
+
         # 2. Load dataset with progress
         update_dataset_progress(0, "Loading dataset...", "Initializing")
-        examples = load_dataset(dataset_source, update_dataset_progress, max_samples=max_samples)
+        examples = load_dataset(
+            dataset_source, update_dataset_progress, max_samples=max_samples)
         mark_complete(dataset_status)
-        
+
         # Split data
         train_examples, test_examples = train_test_split(
             examples, test_size=test_size, random_state=42, shuffle=True
         )
-        
+
         # Update stats display
         stats_df = pd.DataFrame({
             'Statistic': [
-                'Total Examples', 
-                'Training Examples', 
+                'Total Examples',
+                'Training Examples',
                 'Test Examples',
                 'Model Type',
                 'Model Layers',
@@ -1055,40 +1197,56 @@ if run_button:
                 len(examples),
                 len(train_examples),
                 len(test_examples),
-                "Decoder-only" if is_decoder_only_model(model_name) else "Encoder-only/Encoder-decoder",
+                "Decoder-only" if is_decoder_only_model(
+                    model_name) else "Encoder-only/Encoder-decoder",
                 str(get_num_layers(model)),
-                str(train_examples[0]["text"][:50] + "...") if train_examples else "N/A"
+                str(train_examples[0]["text"][:50] +
+                    "...") if train_examples else "N/A"
             ]
         })
         stats_placeholder.table(stats_df)
-        
+
         # 3. Extract embeddings with progress
-        update_embedding_progress(0, "Extracting embeddings for TRAIN set...", "Initializing")
-        
+        update_embedding_progress(
+            0, "Extracting embeddings for TRAIN set...", "Initializing")
+
         # Extract train embeddings
         train_hidden_states, train_labels = get_hidden_states(
-            train_examples, model, tokenizer, model_name, output_layer, 
+            train_examples, model, tokenizer, model_name, output_layer,
             dataset_type="TRAIN", progress_callback=update_embedding_progress
         )
-        
+
         # Extract test embeddings
-        update_embedding_progress(0, "Extracting embeddings for TEST set...", "Initializing")
+        update_embedding_progress(
+            0, "Extracting embeddings for TEST set...", "Initializing")
         test_hidden_states, test_labels = get_hidden_states(
             test_examples, model, tokenizer, model_name, output_layer,
             dataset_type="TEST", progress_callback=update_embedding_progress
         )
         mark_complete(embedding_status)
-        
+
         # 4. Train probes with progress
         update_training_progress(0, "Training probes...", "Initializing")
-        
+
+        # ADD YOUR NEW CODE HERE:
+        # Get the first layer's dimension for calculating hidden_dim
+        first_layer_dim = train_hidden_states.shape[2]
+        hidden_dim = int(
+            first_layer_dim * hidden_dim_factor) if probe_type == "2-layer MLP" else None
+
         num_layers = get_num_layers(model)
         results = train_and_evaluate_model(
-            train_hidden_states, train_labels, 
+            train_hidden_states, train_labels,
             test_hidden_states, test_labels,
             num_layers, use_control_tasks,
             progress_callback=update_training_progress,
-            epochs=train_epochs, lr=learning_rate
+            epochs=train_epochs,
+            lr=learning_rate,
+            probe_type=probe_type,
+            loss_fn=loss_fn,
+            dropout=dropout_rate,
+            weight_decay=weight_decay,
+            hidden_dim=hidden_dim
         )
         mark_complete(training_status)
         
@@ -1194,8 +1352,14 @@ if run_button:
                         # Add truth direction projection visualization
                         st.subheader("Truth Direction Projection")
                         with torch.no_grad():
-                            projection = torch.matmul(
-                                test_feats, probe.linear.weight[0])
+                            # For Linear probes, visualize direct projections
+                            if isinstance(probe, LinearProbe):
+                                projection = torch.matmul(test_feats, probe.linear.weight[0])
+                                title = "Linear Projection onto Truth Direction"
+                            else:
+                                # For MLP probes, use raw outputs as the projection
+                                projection = probe(test_feats)
+                                title = "MLP Output Distribution"
 
                             # Get projection values for true and false examples
                             true_proj = projection[test_labels == 1].cpu().numpy()
@@ -1218,7 +1382,7 @@ if run_button:
                             # Add a vertical line at the decision boundary (0.0)
                             ax_proj.axvline(x=0, color='black',
                                             linestyle='--', alpha=0.5)
-                            ax_proj.set_xlabel("Projection onto Truth Direction")
+                            ax_proj.set_xlabel(title)
                             ax_proj.set_ylabel("Count")
                             ax_proj.legend()
 
