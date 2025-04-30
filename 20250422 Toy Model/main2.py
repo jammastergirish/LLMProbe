@@ -95,6 +95,7 @@ model_options = [
     "meta-llama/Llama-3.2-3B-Instruct-SpinQuant_INT4_EO8",
     "mistralai/Mistral-7B-v0.1",
     "deepseek-ai/DeepSeek-V3-Base",
+    "Qwen/Qwen2.5-32B-Instruct",
     "bert-base-uncased",
     "bert-large-uncased",
     "roberta-base",
@@ -106,8 +107,18 @@ model_name = st.sidebar.selectbox("📚 Model", model_options)
 dataset_source = st.sidebar.selectbox(" 📊 Dataset", 
                                     ["truefalse", "truthfulqa", "boolq", "arithmetic", "fever", "all"])
 use_control_tasks = st.sidebar.checkbox("Use control tasks", value=True)
-output_layer = st.sidebar.selectbox("🧠 Model Output Layer", 
-                                   ["resid_post", "attn_out", "mlp_out"])
+
+decoder_layer_options = ["resid_post", "attn_out", "mlp_out"]
+encoder_summary_options = ["CLS", "mean", "max", "token_index_0"]
+
+def is_decoder_only_model(model_name):
+    decoder_keywords = ["gpt", "llama", "mistral", "pythia", "deepseek", "qwen"]
+    return any(keyword in model_name.lower() for keyword in decoder_keywords)
+
+if is_decoder_only_model(model_name):
+    output_layer = st.sidebar.selectbox("🧠 Output Activation", decoder_layer_options)
+else:
+    output_layer = st.sidebar.selectbox("🧠 Embedding Strategy", encoder_summary_options)
 
 # Device selection
 device_options = []
@@ -121,7 +132,7 @@ device_name = st.sidebar.selectbox("💻 Compute", device_options)
 device = torch.device(device_name)
 
 # Advanced options expander
-with st.sidebar.expander("⚙️ Advanced Options"):
+with st.sidebar.expander("⚙️ Linear Probe Options"):
     train_epochs = st.number_input("Training epochs", min_value=10, max_value=500, value=100)
     learning_rate = st.number_input("Learning rate", min_value=0.0001, max_value=0.1, value=0.01, format="%.4f")
     max_samples = st.number_input("Max samples per dataset", min_value=100, max_value=10000, value=5000)
@@ -129,10 +140,6 @@ with st.sidebar.expander("⚙️ Advanced Options"):
 
 # When the user clicks this button, the analysis will run
 run_button = st.sidebar.button("🚀 Run Analysis", type="primary", use_container_width=True)
-
-def is_decoder_only_model(model_name):
-    decoder_keywords = ["gpt", "llama", "mistral", "pythia", "deepseek"]
-    return any(keyword in model_name.lower() for keyword in decoder_keywords)
 
 # Create a dashboard layout
 col1, col2 = st.columns([3, 2])
@@ -574,7 +581,14 @@ def get_hidden_states(examples, model, tokenizer, model_name, output_layer, data
             hidden_stack = torch.stack(layer_outputs)
             
         else:
-            inputs = tokenizer(ex["text"], return_tensors="pt", truncation=True, max_length=128)
+            if "qwen" in model_name.lower():
+                # Wrap input with Qwen's chat format
+                messages = [{"role": "user", "content": ex["text"]}]
+                prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
+            else:
+                prompt = ex["text"]
+
+            inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=128)
             inputs = {k: v.to(device) for k, v in inputs.items()}
             
             with torch.no_grad():
@@ -584,8 +598,31 @@ def get_hidden_states(examples, model, tokenizer, model_name, output_layer, data
             # Use last token for decoder-only models, first for encoder-only
             if is_decoder:
                 cls_embeddings = torch.stack([layer[:, -1, :] for layer in hidden_states])
-            else:
+            elif output_layer == "CLS":
                 cls_embeddings = torch.stack([layer[:, 0, :] for layer in hidden_states])
+            elif output_layer == "mean":
+                cls_embeddings = torch.stack([
+                    layer.mean(dim=1) for layer in hidden_states
+                ])
+            elif output_layer == "max":
+                cls_embeddings = torch.stack([
+                    layer.max(dim=1).values for layer in hidden_states
+                ])
+            elif output_layer.startswith("token_index_"):
+                index = int(output_layer.split("_")[-1])
+                layer_reprs = []
+
+                for layer in hidden_states:
+                    seq_len = layer.size(1)  # sequence length
+                    safe_index = min(index, seq_len - 1)
+                    layer_reprs.append(layer[:, safe_index, :])  # (1, dim)
+
+                cls_embeddings = torch.stack(layer_reprs)  # shape: [num_layers, 1, dim]
+
+                if index >= seq_len:
+                    add_log(f"⚠️ Token index {index} out of bounds, using last token at position {seq_len - 1}")
+            else:
+                raise ValueError(f"Unsupported encoder output layer: {output_layer}")
             
             # [num_layers, hidden_dim]
             hidden_stack = cls_embeddings.squeeze(1)
