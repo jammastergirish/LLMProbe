@@ -81,14 +81,12 @@ st.markdown("""
 
 <div class="main-title">Probing Large Language Models</div>""", unsafe_allow_html=True)
 
-# Sidebar with custom styling
 st.sidebar.markdown("""
 <div style="padding: 5px; border-radius: 5px; margin-bottom: 20px;">
     <h2 style="color: white; margin: 0;">Configuration</h2>
 </div>
 """, unsafe_allow_html=True)
 
-# Model options
 model_options = [
     "meta-llama/Llama-3.2-1B-Instruct",
     "meta-llama/Llama-3.2-1B", 
@@ -102,23 +100,20 @@ model_options = [
     "gpt2"
 ]
 
-# App inputs
 model_name = st.sidebar.selectbox("📚 Model", model_options)
+
 dataset_source = st.sidebar.selectbox(" 📊 Dataset", 
                                     ["truefalse", "truthfulqa", "boolq", "arithmetic", "fever", "all"])
 use_control_tasks = st.sidebar.checkbox("Use control tasks", value=True)
-
-decoder_layer_options = ["resid_post", "attn_out", "mlp_out"]
-encoder_summary_options = ["CLS", "mean", "max", "token_index_0"]
 
 def is_decoder_only_model(model_name):
     decoder_keywords = ["gpt", "llama", "mistral", "pythia", "deepseek", "qwen"]
     return any(keyword in model_name.lower() for keyword in decoder_keywords)
 
 if is_decoder_only_model(model_name):
-    output_layer = st.sidebar.selectbox("🧠 Output Activation", decoder_layer_options)
+    output_layer = st.sidebar.selectbox("🧠 Output Activation", ["resid_post", "attn_out", "mlp_out"])
 else:
-    output_layer = st.sidebar.selectbox("🧠 Embedding Strategy", encoder_summary_options)
+    output_layer = st.sidebar.selectbox("🧠 Embedding Strategy", ["CLS", "mean", "max", "token_index_0"])
 
 # Device selection
 device_options = []
@@ -131,17 +126,14 @@ device_options.append("cpu")
 device_name = st.sidebar.selectbox("💻 Compute", device_options)
 device = torch.device(device_name)
 
-# Advanced options expander
 with st.sidebar.expander("⚙️ Linear Probe Options"):
     train_epochs = st.number_input("Training epochs", min_value=10, max_value=500, value=100)
     learning_rate = st.number_input("Learning rate", min_value=0.0001, max_value=0.1, value=0.01, format="%.4f")
     max_samples = st.number_input("Max samples per dataset", min_value=100, max_value=10000, value=5000)
     test_size = st.slider("Test split ratio", min_value=0.1, max_value=0.5, value=0.2, step=0.05)
 
-# When the user clicks this button, the analysis will run
 run_button = st.sidebar.button("🚀 Run Analysis", type="primary", use_container_width=True)
 
-# Create a dashboard layout
 col1, col2 = st.columns([3, 2])
 
 with col1:
@@ -1094,10 +1086,6 @@ if run_button:
         
         # 5. Plot and display results
         with accuracy_tab:
-            # Accuracy plot
-            fig_acc = plot_accuracy_by_layer(results['accuracies'], model_name, dataset_source)
-            accuracy_plot.pyplot(fig_acc)
-            
             # Selectivity plot (if using control tasks)
             if use_control_tasks and results['selectivities']:
                 fig_sel = plot_selectivity_by_layer(
@@ -1105,6 +1093,9 @@ if run_button:
                     results['control_accuracies'], model_name, dataset_source
                 )
                 selectivity_plot.pyplot(fig_sel)
+            else:
+                fig_acc = plot_accuracy_by_layer(results['accuracies'], model_name, dataset_source)
+                accuracy_plot.pyplot(fig_acc)
         
         with pca_tab:
             # PCA grid
