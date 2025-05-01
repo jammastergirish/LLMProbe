@@ -89,7 +89,10 @@ model_options = [
     "bert-base-uncased",
     "bert-large-uncased",
     "roberta-base",
-    "gpt2"
+    "gpt2",
+    "gpt2-medium",
+    "gpt2-large",
+    "custom"
 ]
 
 def estimate_memory_requirements(model, batch_size, seq_length=128):
@@ -105,7 +108,7 @@ def estimate_memory_requirements(model, batch_size, seq_length=128):
         hidden_dim = getattr(model.cfg, "d_model", 0)
         num_layers = getattr(model.cfg, "n_layers", 0)
     else:
-        return {"param_memory": "Unknown", "activation_memory": "Unknown", "total_memory": "Unknown"}
+        return {"param_memory": "Unknown", "activation_memory": "Unknown"}
     
     # Count parameters
     param_count = sum(p.numel() for p in model.parameters())
@@ -123,10 +126,6 @@ def estimate_memory_requirements(model, batch_size, seq_length=128):
     
     # Activation memory estimate: batch_size × seq_length × hidden_dim × num_layers × precision
     activation_memory = (batch_size * seq_length * hidden_dim * num_layers * precision) / (1024**3)
-    
-    # Estimate total memory (model + activations + overhead)
-    # Including a 20% overhead factor for other allocations
-    total_memory = (param_memory + activation_memory) * 1.2
     
     # Get current GPU memory usage if available
     current_memory_usage = "N/A"
@@ -146,12 +145,16 @@ def estimate_memory_requirements(model, batch_size, seq_length=128):
         "param_count": f"{param_count/1e9:.2f}B parameters",
         "param_memory": f"{param_memory:.2f} GB",
         "activation_memory": f"{activation_memory:.2f} GB",
-        "total_memory": f"{total_memory:.2f} GB",
         "precision": f"{precision*8} bit" if precision < 4 else "32 bit",
         "current_usage": current_memory_usage
     }
 
 model_name = st.sidebar.selectbox("📚 Model", model_options)
+
+if model_name == "custom":
+    model_name = st.sidebar.text_input("Custom Model Name", "meta-llama/Llama-3.2-1B-Instruct")
+    if not model_name:
+        st.sidebar.error("Please enter a valid model.")
 
 dataset_source = st.sidebar.selectbox(" 📊 Dataset", 
                                     ["truefalse", "truthfulqa", "boolq", "arithmetic", "fever", "custom"])
@@ -1383,7 +1386,6 @@ if run_button:
                 'Model Size',
                 'Parameter Memory',
                 'Activation Memory',
-                'Est. Total Memory',
                 'Current Memory Usage',
                 'Precision',
                 'Example'
@@ -1397,7 +1399,6 @@ if run_button:
                 memory_estimates["param_count"],
                 memory_estimates["param_memory"],
                 memory_estimates["activation_memory"],
-                memory_estimates["total_memory"],
                 memory_estimates["current_usage"],
                 memory_estimates["precision"],
                 str(train_examples[0]["text"][:50] +
