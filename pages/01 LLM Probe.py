@@ -152,9 +152,9 @@ def estimate_memory_requirements(model, batch_size, seq_length=128):
 model_name = st.sidebar.selectbox("📚 Model", model_options)
 
 if model_name == "custom":
-    model_name = st.sidebar.text_input("Custom Model Name", "meta-llama/Llama-3.2-1B-Instruct")
+    model_name = st.sidebar.text_input("Custom Model Name")
     if not model_name:
-        st.sidebar.error("Please enter a valid model.")
+        st.sidebar.error("Please enter a model.")
 
 dataset_source = st.sidebar.selectbox(" 📊 Dataset", 
                                     ["truefalse", "truthfulqa", "boolq", "arithmetic", "fever", "custom"])
