@@ -2036,6 +2036,30 @@ if run_button:
     stats_placeholder.table(initial_stats_df)
 
     try:
+        # Save parameters.json file
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        parameters = {
+            "datetime": current_time,
+            "model_name": model_name,
+            "dataset": dataset_source,
+            "output_activation": output_layer,
+            "device": str(device),
+            "batch_size": batch_size,
+            "train_epochs": train_epochs,
+            "learning_rate": learning_rate,
+            "max_samples": max_samples,
+            "test_size": test_size,
+            "use_control_tasks": use_control_tasks,
+            "use_sparse_autoencoders": use_sparse_autoencoders
+        }
+        
+        if use_sparse_autoencoders:
+            parameters["sparse_hidden_dim"] = sparse_hidden_dim
+            parameters["sparse_epochs"] = sparse_epochs
+            parameters["sparse_lr"] = sparse_lr
+            
+        save_json(parameters, os.path.join(run_folder, "parameters.json"))
+        
         # 1. Load model with progress
         update_model_progress(0, "Loading model...", "Initializing")
         tokenizer, model = load_model_and_tokenizer(
@@ -2155,10 +2179,14 @@ if run_button:
                     results['control_accuracies'], model_name, dataset_source
                 )
                 selectivity_plot.pyplot(fig_sel)
+                # Save the selectivity plot
+                save_graph(fig_sel, os.path.join(run_folder, "selectivity_plot.png"))
             else:
                 fig_acc = plot_accuracy_by_layer(
                     results['accuracies'], model_name, dataset_source)
                 accuracy_plot.pyplot(fig_acc)
+                # Save the accuracy plot
+                save_graph(fig_acc, os.path.join(run_folder, "accuracy_plot.png"))
 
         with pca_tab:
             # PCA grid
@@ -2166,6 +2194,8 @@ if run_button:
             fig_pca = plot_pca_grid(
                 test_hidden_states, test_labels, results['probes'], model_name, dataset_source)
             pca_plot.pyplot(fig_pca)
+            # Save the PCA grid visualization
+            save_graph(fig_pca, os.path.join(run_folder, "pca_plot.png"))
 
         with projection_tab:
             # Truth projection grid
@@ -2173,6 +2203,8 @@ if run_button:
             fig_proj = plot_truth_projections(
                 test_hidden_states, test_labels, results['probes'])
             projection_plot.pyplot(fig_proj)
+            # Save the projection plot
+            save_graph(fig_proj, os.path.join(run_folder, "proj_plot.png"))
 
         with data_tab:
             # Display numeric results
@@ -2443,6 +2475,21 @@ if run_button:
                                 else:
                                     st.markdown("No examples found")
 
+        # Save the results
+        result_data = {
+            "accuracies": results['accuracies'],
+            "test_losses": results['test_losses'],
+            "best_layer": int(best_layer),
+            "best_accuracy": float(best_acc),
+            "num_layers": int(num_layers)
+        }
+        
+        if use_control_tasks:
+            result_data["control_accuracies"] = results['control_accuracies']
+            result_data["selectivities"] = results['selectivities']
+            
+        save_json(result_data, os.path.join(run_folder, "results.json"))
+        
         # Add completion message
         st.success(
             f"Analysis complete! Best layer: {best_layer} with accuracy {best_acc:.4f}")
