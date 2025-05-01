@@ -1392,13 +1392,10 @@ def train_semisupervised_autoencoder(train_feats, train_labels, hidden_dim, epoc
     sparsity_levels = []
     accuracies = []
     
+    # Only update progress every few epochs to reduce UI clutter
+    update_interval = max(1, epochs // 10)
+    
     for epoch in range(epochs):
-        # Progress update
-        if progress_callback and epoch % 10 == 0:
-            progress = epoch / epochs
-            progress_callback(progress, f"Training semi-supervised autoencoder epoch {epoch+1}/{epochs}", 
-                         f"Reconstruction loss: {recon_losses[-1] if recon_losses else 'N/A'}")
-        
         optimizer.zero_grad()
         
         # Forward pass
@@ -1442,11 +1439,14 @@ def train_semisupervised_autoencoder(train_feats, train_labels, hidden_dim, epoc
             classification_losses.append(classification_loss)
             total_losses.append(recon_losses[-1] + model.sparsity_weight * sparsity_loss + 
                                 model.classification_weight * classification_loss)
+        
+        # Progress update at intervals or at the beginning and end
+        if progress_callback and (epoch % update_interval == 0 or epoch == 0 or epoch == epochs-1):
+            progress = epoch / epochs
+            progress_callback(progress, f"Training epoch {epoch+1}/{epochs}", 
+                         f"Loss: {recon_losses[-1]:.6f}, Accuracy: {accuracies[-1]:.4f}")
     
-    # Final progress update
-    if progress_callback:
-        progress_callback(1.0, "Completed semi-supervised autoencoder training", 
-                      f"Final recon loss: {recon_losses[-1]:.6f}, Acc: {accuracies[-1]:.4f}, Sparsity: {sparsity_levels[-1]:.1f}%")
+    # Final progress update (already handled above for the last epoch)
     
     return model, {
         'recon_losses': recon_losses,
@@ -1463,16 +1463,25 @@ def visualize_sparse_autoencoders(test_hidden_states, test_labels, num_layers, s
     
     # Store results for each layer
     layer_results = []
+    total_layers = num_layers
+    
+    # Create a progress wrapper that normalizes progress across all layers
+    def layer_progress_callback(layer_progress, message, details):
+        # Calculate overall progress: completed layers + current layer progress
+        overall_progress = (layer + layer_progress) / total_layers
+        progress_callback(overall_progress, message, details)
     
     # Process each layer
     for layer in range(num_layers):
-        if progress_callback:
-            progress_callback(layer / num_layers, f"Processing sparse autoencoder for layer {layer+1}/{num_layers}", 
-                             f"Training semi-supervised autoencoder with latent dim {sparse_hidden_dim}")
-        
         # Get features for this layer
         layer_feats = test_hidden_states[:, layer, :]
         lbls = test_labels
+        
+        # Update main progress with layer info
+        if progress_callback:
+            progress_callback(layer / num_layers, 
+                             f"Processing layer {layer+1}/{num_layers}", 
+                             f"Starting autoencoder training for layer {layer}")
         
         # Train the semi-supervised autoencoder
         ae_model, training_stats = train_semisupervised_autoencoder(
@@ -1484,7 +1493,7 @@ def visualize_sparse_autoencoders(test_hidden_states, test_labels, num_layers, s
             sparsity_target=0.05,
             sparsity_weight=0.1,
             classification_weight=0.5,  # Balance between reconstruction and classification
-            progress_callback=progress_callback
+            progress_callback=layer_progress_callback if progress_callback else None
         )
         
         # Get latent representations
@@ -2295,15 +2304,21 @@ if run_button:
             with sparse_ae_tab:
                 progress_container = st.container()
                 
+                # Create a single progress display that will be updated
+                progress_title = progress_container.empty()
+                progress_bar = progress_container.progress(0.0)
+                progress_details = progress_container.empty()
+                
                 # Progress function specifically for sparse autoencoder
                 def update_sparse_ae_progress(progress, message, details=""):
-                    progress_container.markdown(f"**{message}**")
-                    progress_container.progress(progress)
-                    progress_container.text(details)
+                    progress_title.markdown(f"**{message}**")
+                    progress_bar.progress(progress)
+                    progress_details.empty()
+                    progress_details.text(details)
                     add_log(f"Sparse AE ({progress:.0%}): {message} - {details}")
 
                 # Run the sparse autoencoder analysis
-                progress_container.info("Running sparse autoencoder analysis for each layer...")
+                progress_title.markdown("**Running sparse autoencoder analysis for each layer...**")
                 layer_results = visualize_sparse_autoencoders(
                     test_hidden_states,
                     test_labels,
