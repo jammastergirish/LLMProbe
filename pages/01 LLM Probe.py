@@ -315,13 +315,22 @@ st.markdown("""
 <div class="section-header">Results</div>
 """, unsafe_allow_html=True)
 
-tabs = st.tabs(["Accuracy Analysis", "PCA Visualization", "Truth Direction Analysis", "Data View", "Sparse Autoencoder"])
+main_tabs = st.tabs(["📊 PROBE ANALYSIS", "🧬 SPARSE AUTOENCODER ANALYSIS"])
+probe_tab = main_tabs[0]
+sparse_ae_tab = main_tabs[1]
 
-accuracy_tab = tabs[0]
-pca_tab = tabs[1]
-projection_tab = tabs[2] 
-data_tab = tabs[3]
-sparse_tab = tabs[4]
+# Create sub-tabs for probe analysis
+with probe_tab:
+    tabs = st.tabs(["Accuracy Analysis", "PCA Visualization", "Truth Direction Analysis", "Data View"])
+    accuracy_tab = tabs[0]
+    pca_tab = tabs[1]
+    projection_tab = tabs[2] 
+    data_tab = tabs[3]
+
+# Create sub-tabs for sparse autoencoder analysis
+with sparse_ae_tab:
+    st.info("Enable sparse autoencoders in the sidebar and run the analysis to see results here.")
+    sparse_tab = st.empty()
 
 # Create empty containers for results
 with accuracy_tab:
@@ -1511,6 +1520,7 @@ def create_sparse_ae_visualizations(layer_results, output_tab):
     """Generate and display visualizations for sparse autoencoder results"""
     
     # Create tabs for different analysis views
+    output_tab.empty()  # Clear the previous content
     view_tabs = output_tab.tabs(["Overview", "Layer Analysis", "Latent Space", "Training Curves"])
     
     # 1. Overview Tab - Summary metrics across all layers
@@ -2281,20 +2291,19 @@ if run_button:
 
         # Process sparse autoencoders
         if use_sparse_autoencoders:
-            with sparse_tab:
-                sparse_tab.subheader("🧬 Sparse Autoencoder Analysis")
-
+            # Switch to the sparse autoencoder tab
+            with sparse_ae_tab:
+                progress_container = st.container()
+                
                 # Progress function specifically for sparse autoencoder
                 def update_sparse_ae_progress(progress, message, details=""):
-                    sparse_tab.markdown(f"**{message}**")
-                    sparse_tab.progress(progress)
-                    sparse_tab.text(details)
-                    add_log(
-                        f"Sparse AE ({progress:.0%}): {message} - {details}")
+                    progress_container.markdown(f"**{message}**")
+                    progress_container.progress(progress)
+                    progress_container.text(details)
+                    add_log(f"Sparse AE ({progress:.0%}): {message} - {details}")
 
                 # Run the sparse autoencoder analysis
-                sparse_tab.info(
-                    "Running sparse autoencoder analysis for each layer...")
+                progress_container.info("Running sparse autoencoder analysis for each layer...")
                 layer_results = visualize_sparse_autoencoders(
                     test_hidden_states,
                     test_labels,
@@ -2305,7 +2314,7 @@ if run_button:
                     progress_callback=update_sparse_ae_progress
                 )
 
-                # Create visualizations
+                # Create visualizations in the sparse tab
                 create_sparse_ae_visualizations(layer_results, sparse_tab)
 
                 # Save sparse autoencoder visualizations
@@ -2321,10 +2330,12 @@ if run_button:
                 }
                 save_json(sparse_results, os.path.join(
                     run_folder, "sparse_ae_results.json"))
+                
+                # Clear the progress container once done
+                progress_container.empty()
         else:
-            with sparse_tab:
-                sparse_tab.info(
-                    "Enable sparse autoencoders in the sidebar to view results.")
+            with sparse_ae_tab:
+                st.warning("Enable sparse autoencoders in the sidebar to view results.")
 
     except Exception as e:
         st.error(f"An error occurred: {str(e)}")
