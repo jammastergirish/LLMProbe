@@ -29,7 +29,7 @@ if os.path.exists(SAVED_DATA_DIR):
 
                 # Create tabs for different sections
                 run_tabs = st.tabs(
-                    ["📋 Overview", "⚙️ Parameters", "📈 Visualizations"])
+                    ["📋 Overview", "⚙️ Parameters", "📈 Probe Visualizations", "🧬 Sparse AE Visualizations"])
 
                 # Overview tab
                 with run_tabs[0]:
@@ -73,9 +73,9 @@ if os.path.exists(SAVED_DATA_DIR):
                     # with st.expander("View Raw Parameters"):
                     #     st.json(parameters)
 
-                # Visualizations tab
+                # Probe Visualizations tab
                 with run_tabs[2]:
-                    st.subheader("Analysis Visualizations")
+                    st.subheader("📊 Probe Analysis Visualizations")
 
                     # Accuracy plot
                     accuracy_plot_path = os.path.join(
@@ -97,6 +97,63 @@ if os.path.exists(SAVED_DATA_DIR):
                         st.caption("🧭 TRUTH DIRECTION PLOT")
                         st.image(truth_direction_plot_path,
                                  use_container_width=True)
+                
+                # Sparse Autoencoder Visualizations tab
+                with run_tabs[3]:
+                    st.subheader("🧬 Sparse Autoencoder Analysis")
+                    
+                    # Check if sparse autoencoder results exist
+                    sparse_ae_results_path = os.path.join(run_folder, "sparse_ae_results.json")
+                    if os.path.exists(sparse_ae_results_path):
+                        try:
+                            with open(sparse_ae_results_path) as f:
+                                sparse_results = json.load(f)
+                                
+                            # Display summary metrics if available
+                            if "summary" in sparse_results:
+                                summary = sparse_results["summary"]
+                                
+                                metrics_cols = st.columns(3)
+                                with metrics_cols[0]:
+                                    st.metric("Best Layer", summary.get("best_layer", "N/A"))
+                                with metrics_cols[1]:
+                                    st.metric("Mean Sparsity", f"{summary.get('mean_sparsity', 0):.2f}%")
+                                with metrics_cols[2]:
+                                    st.metric("Latent Dimensions", summary.get("latent_dim", "N/A"))
+                            
+                            # Accuracy plot
+                            sparse_accuracy_plot_path = os.path.join(run_folder, "sparse_ae_accuracy_plot.png")
+                            if os.path.exists(sparse_accuracy_plot_path):
+                                st.caption("📈 SPARSE AE ACCURACY PLOT")
+                                st.image(sparse_accuracy_plot_path, use_container_width=True)
+                            
+                            # Sparsity plot
+                            sparse_sparsity_plot_path = os.path.join(run_folder, "sparse_ae_sparsity_plot.png")
+                            if os.path.exists(sparse_sparsity_plot_path):
+                                st.caption("📊 SPARSITY BY LAYER")
+                                st.image(sparse_sparsity_plot_path, use_container_width=True)
+                            
+                            # Latent PCA visualization
+                            sparse_pca_path = os.path.join(run_folder, "sparse_ae_latent_pca.png")
+                            if os.path.exists(sparse_pca_path):
+                                st.caption("🔍 LATENT SPACE PCA")
+                                st.image(sparse_pca_path, use_container_width=True)
+                                
+                            # Feature importance visualization
+                            sparse_features_path = os.path.join(run_folder, "sparse_ae_feature_importance.png")
+                            if os.path.exists(sparse_features_path):
+                                st.caption("🧠 FEATURE IMPORTANCE")
+                                st.image(sparse_features_path, use_container_width=True)
+                                
+                            # Display layer metrics as a table
+                            if "layer_metrics" in sparse_results and len(sparse_results["layer_metrics"]) > 0:
+                                st.subheader("Layer-wise Metrics")
+                                metrics_df = pd.DataFrame(sparse_results["layer_metrics"])
+                                st.dataframe(metrics_df)
+                        except Exception as e:
+                            st.error(f"Error loading sparse autoencoder results: {str(e)}")
+                    else:
+                        st.info("No sparse autoencoder analysis was performed for this run.")
     else:
         st.info("No saved runs found.")
 else:

@@ -1526,11 +1526,21 @@ def visualize_sparse_autoencoders(test_hidden_states, test_labels, num_layers, s
     return layer_results
 
 def create_sparse_ae_visualizations(layer_results, output_tab):
-    """Generate and display visualizations for sparse autoencoder results"""
+    """Generate and display visualizations for sparse autoencoder results
+    
+    Returns:
+        tuple: Two dictionaries containing the generated figures:
+            - overview_figs: Dict with overview figures (accuracy_vs_layer, sparsity_vs_layer)
+            - layer_analysis_figs: Dict with layer-specific figures (pca, feature_importance)
+    """
     
     # Create tabs for different analysis views
     output_tab.empty()  # Clear the previous content
     view_tabs = output_tab.tabs(["Overview", "Layer Analysis", "Latent Space", "Training Curves"])
+    
+    # Store figures to return for saving
+    overview_figs = {}
+    layer_analysis_figs = {}
     
     # 1. Overview Tab - Summary metrics across all layers
     with view_tabs[0]:
@@ -1568,22 +1578,24 @@ def create_sparse_ae_visualizations(layer_results, output_tab):
         st.dataframe(summary_df)
         
         # Plot accuracy vs. layer
-        fig, ax = plt.subplots(figsize=(10, 6))
+        fig_acc, ax = plt.subplots(figsize=(10, 6))
         ax.plot(summary_df['Layer'], summary_df['Accuracy'], marker='o', linestyle='-', linewidth=2)
         ax.set_xlabel('Layer')
         ax.set_ylabel('Classifier Accuracy on z')
         ax.set_title('Truth Separability in Latent Space')
         ax.grid(True, alpha=0.3)
-        st.pyplot(fig)
+        st.pyplot(fig_acc)
+        overview_figs['accuracy_vs_layer'] = fig_acc
         
         # Plot sparsity vs. layer
-        fig, ax = plt.subplots(figsize=(10, 6))
+        fig_sparsity, ax = plt.subplots(figsize=(10, 6))
         ax.plot(summary_df['Layer'], summary_df['Sparsity (%)'], marker='o', linestyle='-', linewidth=2, color='orange')
         ax.set_xlabel('Layer')
         ax.set_ylabel('Sparsity (%)')
         ax.set_title('Latent Representation Sparsity by Layer')
         ax.grid(True, alpha=0.3)
-        st.pyplot(fig)
+        st.pyplot(fig_sparsity)
+        overview_figs['sparsity_vs_layer'] = fig_sparsity
     
     # 2. Layer Analysis Tab - Select a specific layer to analyze
     with view_tabs[1]:
@@ -1643,7 +1655,7 @@ def create_sparse_ae_visualizations(layer_results, output_tab):
             top_indices = np.argsort(-feature_diffs)[:10]
             
             # Create visualization
-            fig, ax = plt.subplots(figsize=(10, 6))
+            fig_features, ax = plt.subplots(figsize=(10, 6))
             
             # For each top feature, show the activation difference
             feature_names = [f"z{i}" for i in top_indices]
@@ -1663,7 +1675,12 @@ def create_sparse_ae_visualizations(layer_results, output_tab):
             ax.set_xticklabels(feature_names)
             ax.legend()
             
-            st.pyplot(fig)
+            st.pyplot(fig_features)
+            
+            # Save this figure for export if it's a midpoint layer
+            mid_layer = len(layer_results) // 2
+            if selected_layer == mid_layer or not layer_analysis_figs.get('feature_importance'):
+                layer_analysis_figs['feature_importance'] = fig_features
         
         # PCA visualization of latent space
         st.subheader("Latent Space Visualization")
@@ -1671,7 +1688,7 @@ def create_sparse_ae_visualizations(layer_results, output_tab):
         pca = PCA(n_components=2)
         z_pca = pca.fit_transform(z)
         
-        fig, ax = plt.subplots(figsize=(10, 6))
+        fig_pca, ax = plt.subplots(figsize=(10, 6))
         scatter_true = ax.scatter(z_pca[labels == 1, 0], z_pca[labels == 1, 1], 
                                   alpha=0.7, label="True", color="#4CAF50")
         scatter_false = ax.scatter(z_pca[labels == 0, 0], z_pca[labels == 0, 1], 
@@ -1682,7 +1699,12 @@ def create_sparse_ae_visualizations(layer_results, output_tab):
         ax.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]:.2%} variance)")
         ax.legend()
         
-        st.pyplot(fig)
+        st.pyplot(fig_pca)
+        
+        # Save for export - typically we choose a middle layer
+        mid_layer = len(layer_results) // 2
+        if selected_layer == mid_layer or not layer_analysis_figs.get('pca'):
+            layer_analysis_figs['pca'] = fig_pca
     
     # 3. Latent Space Tab - Explore the latent dimensions
     with view_tabs[2]:
@@ -1720,9 +1742,26 @@ def create_sparse_ae_visualizations(layer_results, output_tab):
         for i, dim_idx in enumerate(top_dims[:min(8, len(top_dims))]):
             ax = axs[i]
             
-            # Create histogram for this dimension
-            ax.hist(z[labels == 1, dim_idx], bins=30, alpha=0.7, label="True", color="#4CAF50")
-            ax.hist(z[labels == 0, dim_idx], bins=30, alpha=0.7, label="False", color="#F44336")
+            # Check data range before creating histogram
+            true_data = z[labels == 1, dim_idx]
+            false_data = z[labels == 0, dim_idx]
+            
+            # Auto-determine appropriate number of bins based on data
+            if len(np.unique(true_data)) <= 1 or len(np.unique(false_data)) <= 1:
+                # If all values are identical, use just 1 bin
+                ax.hist(true_data, bins=1, alpha=0.7, label="True", color="#4CAF50")
+                ax.hist(false_data, bins=1, alpha=0.7, label="False", color="#F44336")
+            else:
+                # Determine appropriate number of bins (max 30, min 5, or auto)
+                try:
+                    ax.hist(true_data, bins=min(30, max(5, len(np.unique(true_data)))), 
+                           alpha=0.7, label="True", color="#4CAF50")
+                    ax.hist(false_data, bins=min(30, max(5, len(np.unique(false_data)))), 
+                           alpha=0.7, label="False", color="#F44336")
+                except ValueError:
+                    # Fallback to 'auto' if we still get bin errors
+                    ax.hist(true_data, bins='auto', alpha=0.7, label="True", color="#4CAF50")
+                    ax.hist(false_data, bins='auto', alpha=0.7, label="False", color="#F44336")
             
             ax.set_title(f"Dimension {dim_idx}")
             
@@ -1781,7 +1820,7 @@ def create_sparse_ae_visualizations(layer_results, output_tab):
         training_stats = result['training_stats']
         
         # Create plots for losses
-        fig, ax = plt.subplots(figsize=(10, 6))
+        fig_training, ax = plt.subplots(figsize=(10, 6))
         
         epochs = range(1, len(training_stats['recon_losses']) + 1)
         
@@ -1796,7 +1835,10 @@ def create_sparse_ae_visualizations(layer_results, output_tab):
         ax.legend()
         ax.grid(True, alpha=0.3)
         
-        st.pyplot(fig)
+        st.pyplot(fig_training)
+    
+    # Return figures for saving
+    return overview_figs, layer_analysis_figs
 
 def analyze_latent_space(z, labels, layer, st, max_dims=5):
     import matplotlib.pyplot as plt
@@ -1808,10 +1850,26 @@ def analyze_latent_space(z, labels, layer, st, max_dims=5):
     st.subheader(f"🔍 Latent Dimensions (z) Histograms for Layer {layer}")
     fig, axs = plt.subplots(1, max_dims, figsize=(max_dims * 3, 3))
     for i in range(min(z.shape[1], max_dims)):
-        axs[i].hist(z[labels == 1][:, i], bins=30,
-                    alpha=0.6, label="True", color="#4CAF50")
-        axs[i].hist(z[labels == 0][:, i], bins=30, alpha=0.6,
-                    label="False", color="#F44336")
+        # Get data for this dimension
+        true_data = z[labels == 1][:, i]
+        false_data = z[labels == 0][:, i]
+        
+        # Handle histogram binning adaptively
+        try:
+            if len(np.unique(true_data)) <= 1 or len(np.unique(false_data)) <= 1:
+                # If all values are identical, use just 1 bin
+                axs[i].hist(true_data, bins=1, alpha=0.6, label="True", color="#4CAF50")
+                axs[i].hist(false_data, bins=1, alpha=0.6, label="False", color="#F44336")
+            else:
+                # Determine appropriate number of bins based on data
+                bins = min(30, max(5, min(len(np.unique(true_data)), len(np.unique(false_data)))))
+                axs[i].hist(true_data, bins=bins, alpha=0.6, label="True", color="#4CAF50")
+                axs[i].hist(false_data, bins=bins, alpha=0.6, label="False", color="#F44336")
+        except ValueError:
+            # Fallback to 'auto' if we still get errors
+            axs[i].hist(true_data, bins='auto', alpha=0.6, label="True", color="#4CAF50")
+            axs[i].hist(false_data, bins='auto', alpha=0.6, label="False", color="#F44336")
+            
         axs[i].set_title(f"z[:, {i}]")
         axs[i].set_xticks([])
         axs[i].set_yticks([])
@@ -2329,22 +2387,39 @@ if run_button:
                     progress_callback=update_sparse_ae_progress
                 )
 
-                # Create visualizations in the sparse tab
-                create_sparse_ae_visualizations(layer_results, sparse_tab)
-
-                # Save sparse autoencoder visualizations
+                # Create visualizations in the sparse tab and get the figures
+                overview_figs, layer_analysis_figs = create_sparse_ae_visualizations(layer_results, sparse_tab)
+                
+                # Save all sparse autoencoder figures
+                if 'accuracy_vs_layer' in overview_figs:
+                    save_graph(overview_figs['accuracy_vs_layer'], os.path.join(run_folder, "sparse_ae_accuracy_plot.png"))
+                if 'sparsity_vs_layer' in overview_figs:
+                    save_graph(overview_figs['sparsity_vs_layer'], os.path.join(run_folder, "sparse_ae_sparsity_plot.png"))
+                
+                # Save layer analysis figures
+                if 'pca' in layer_analysis_figs:
+                    save_graph(layer_analysis_figs['pca'], os.path.join(run_folder, "sparse_ae_latent_pca.png"))
+                if 'feature_importance' in layer_analysis_figs:
+                    save_graph(layer_analysis_figs['feature_importance'], os.path.join(run_folder, "sparse_ae_feature_importance.png"))
+                
+                # Save detailed sparse autoencoder metrics
                 sparse_results = {
                     "layer_metrics": [
                         {
                             "layer": result["layer"],
                             "sparsity": float(np.mean(result["z"] < 0.01) * 100),
+                            "accuracy": float(result.get("accuracy", 0.0)),
                             "final_recon_loss": float(result["training_stats"]["recon_losses"][-1])
                         }
                         for result in layer_results
-                    ]
+                    ],
+                    "summary": {
+                        "best_layer": int(max(range(len(layer_results)), key=lambda i: layer_results[i].get("accuracy", 0.0))),
+                        "mean_sparsity": float(np.mean([np.mean(result["z"] < 0.01) * 100 for result in layer_results])),
+                        "latent_dim": sparse_hidden_dim
+                    }
                 }
-                save_json(sparse_results, os.path.join(
-                    run_folder, "sparse_ae_results.json"))
+                save_json(sparse_results, os.path.join(run_folder, "sparse_ae_results.json"))
                 
                 # Clear the progress container once done
                 progress_container.empty()
