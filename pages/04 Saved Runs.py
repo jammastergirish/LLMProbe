@@ -10,8 +10,11 @@ st.title("📊 Saved Runs")
 
 # List all saved runs
 if os.path.exists(SAVED_DATA_DIR):
-    run_folders = [f for f in os.listdir(
-        SAVED_DATA_DIR) if os.path.isdir(os.path.join(SAVED_DATA_DIR, f))]
+    run_folders = sorted(
+        [f for f in os.listdir(SAVED_DATA_DIR) if os.path.isdir(os.path.join(SAVED_DATA_DIR, f))],
+        key=lambda x: os.path.getctime(os.path.join(SAVED_DATA_DIR, x)),
+        reverse=True  # Descending order
+    )
     if run_folders:
         for run_id in run_folders:
             run_folder = os.path.join(SAVED_DATA_DIR, run_id)
@@ -32,7 +35,7 @@ if os.path.exists(SAVED_DATA_DIR):
                 with run_tabs[0]:
                     st.subheader("Run Information")
                     st.json(parameters)
-                    
+
                 # Parameters tab
                 with run_tabs[1]:
                     st.subheader("Configuration Parameters")
