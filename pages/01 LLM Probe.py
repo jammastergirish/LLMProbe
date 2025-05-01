@@ -218,7 +218,7 @@ use_sparse_autoencoders = st.sidebar.checkbox("Use Sparse Autoencoders", value=T
 
 if use_sparse_autoencoders:
     with st.sidebar.expander("🧬 Sparse Autoencoder Options"):
-        sparse_hidden_dim = st.number_input("Latent Dimension (z)", min_value=2, max_value=1024, value=64, step=2)
+        sparse_hidden_dim = st.number_input("Latent Dimension (z)", min_value=2, max_value=1024, value=256, step=2)
         sparse_epochs = st.number_input("Sparse AE Training Epochs", min_value=10, max_value=500, value=100)
         sparse_lr = st.number_input("Sparse AE Learning Rate", min_value=0.0001, max_value=0.1, value=0.01, format="%.4f")
 
@@ -1316,53 +1316,61 @@ def save_fig(fig, filename):
 
 
 
-class SparseAutoencoder(torch.nn.Module):
-    def __init__(self, input_dim, hidden_dim, sparsity_target=0.05, sparsity_weight=0.1):
+class SemiSupervisedSparseAutoencoder(torch.nn.Module):
+    def __init__(self, input_dim, hidden_dim, sparsity_target=0.05, sparsity_weight=0.1, classification_weight=0.5):
         super().__init__()
         self.encoder = torch.nn.Linear(input_dim, hidden_dim)
         self.decoder = torch.nn.Linear(hidden_dim, input_dim)
-        self.sparsity_target = sparsity_target  # Target activation rate (low = sparse)
-        self.sparsity_weight = sparsity_weight  # Weight of sparsity penalty
+        self.classifier = torch.nn.Linear(hidden_dim, 1)  # Binary classifier
+        self.sparsity_target = sparsity_target
+        self.sparsity_weight = sparsity_weight
+        self.classification_weight = classification_weight
 
     def forward(self, x):
-        # Use sigmoid activation instead of ReLU for better sparsity control
         z = torch.sigmoid(self.encoder(x))
         recon = self.decoder(z)
         return recon, z
     
-    def get_loss(self, x, recon, z):
-        # Reconstruction loss (MSE)
+    def classify(self, z):
+        return torch.sigmoid(self.classifier(z))
+    
+    def get_loss(self, x, recon, z, labels=None):
+        # Reconstruction loss
         recon_loss = torch.nn.functional.mse_loss(recon, x)
         
-        # KL divergence sparsity penalty
-        # This encourages neurons to be mostly inactive
-        eps = 1e-8  # To prevent log(0)
+        # Sparsity loss
         z_avg = torch.mean(z, dim=0)
         sparsity_loss = torch.sum(
-            self.sparsity_target * torch.log((self.sparsity_target + eps) / (z_avg + eps)) +
-            (1 - self.sparsity_target) * torch.log((1 - self.sparsity_target + eps) / (1 - z_avg + eps))
+            self.sparsity_target * torch.log((self.sparsity_target + 1e-8) / (z_avg + 1e-8)) +
+            (1 - self.sparsity_target) * torch.log((1 - self.sparsity_target + 1e-8) / (1 - z_avg + 1e-8))
         )
         
-        # Total loss
-        total_loss = recon_loss + self.sparsity_weight * sparsity_loss
+        # Classification loss (if labels provided)
+        if labels is not None:
+            predictions = self.classify(z).squeeze()
+            classification_loss = torch.nn.functional.binary_cross_entropy(
+                predictions, labels.float()
+            )
+            return recon_loss + self.sparsity_weight * sparsity_loss + self.classification_weight * classification_loss
         
-        return total_loss, recon_loss, sparsity_loss
-    
+        return recon_loss + self.sparsity_weight * sparsity_loss
+        
     def calculate_sparsity(self, z, threshold=0.1):
         """Calculate actual sparsity percentage (percent of activations < threshold)"""
         inactive = (z < threshold).float().mean().item() * 100
         return inactive
 
 
-def train_sparse_autoencoder(train_feats, hidden_dim, epochs=100, lr=0.001, 
-                            sparsity_target=0.05, sparsity_weight=0.1, 
-                            progress_callback=None):
-    """Train a sparse autoencoder with progress updates and better parameters"""
-    model = SparseAutoencoder(
+def train_semisupervised_autoencoder(train_feats, train_labels, hidden_dim, epochs=100, lr=0.001, 
+                                    sparsity_target=0.05, sparsity_weight=0.1, classification_weight=0.5, 
+                                    progress_callback=None):
+    """Train a semi-supervised sparse autoencoder with progress updates"""
+    model = SemiSupervisedSparseAutoencoder(
         train_feats.shape[1], 
         hidden_dim, 
         sparsity_target=sparsity_target,
-        sparsity_weight=sparsity_weight
+        sparsity_weight=sparsity_weight,
+        classification_weight=classification_weight
     ).to(device)
     
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -1370,14 +1378,16 @@ def train_sparse_autoencoder(train_feats, hidden_dim, epochs=100, lr=0.001,
     # Track metrics
     recon_losses = []
     sparsity_losses = []
+    classification_losses = []
     total_losses = []
     sparsity_levels = []
+    accuracies = []
     
     for epoch in range(epochs):
         # Progress update
         if progress_callback and epoch % 10 == 0:
             progress = epoch / epochs
-            progress_callback(progress, f"Training autoencoder epoch {epoch+1}/{epochs}", 
+            progress_callback(progress, f"Training semi-supervised autoencoder epoch {epoch+1}/{epochs}", 
                          f"Reconstruction loss: {recon_losses[-1] if recon_losses else 'N/A'}")
         
         optimizer.zero_grad()
@@ -1385,38 +1395,62 @@ def train_sparse_autoencoder(train_feats, hidden_dim, epochs=100, lr=0.001,
         # Forward pass
         recon, z = model(train_feats)
         
-        # Calculate loss with sparsity penalty
-        total_loss, recon_loss, sparsity_loss = model.get_loss(train_feats, recon, z)
+        # Calculate loss with sparsity penalty and classification
+        total_loss = model.get_loss(train_feats, recon, z, train_labels)
         
         # Track current sparsity
         current_sparsity = model.calculate_sparsity(z)
         sparsity_levels.append(current_sparsity)
+        
+        # Track accuracy
+        with torch.no_grad():
+            predictions = model.classify(z)
+            preds = (predictions > 0.5).float()
+            accuracy = (preds == train_labels.float()).float().mean().item()
+            accuracies.append(accuracy)
         
         # Backward pass
         total_loss.backward()
         optimizer.step()
         
         # Record metrics
-        recon_losses.append(recon_loss.item())
-        sparsity_losses.append(sparsity_loss.item())
-        total_losses.append(total_loss.item())
+        recon_losses.append(torch.nn.functional.mse_loss(recon, train_feats).item())
+        
+        # Extract components for tracking
+        with torch.no_grad():
+            # Recalculate components for logging
+            z_avg = torch.mean(z, dim=0)
+            sparsity_loss = torch.sum(
+                model.sparsity_target * torch.log((model.sparsity_target + 1e-8) / (z_avg + 1e-8)) +
+                (1 - model.sparsity_target) * torch.log((1 - model.sparsity_target + 1e-8) / (1 - z_avg + 1e-8))
+            ).item()
+            
+            classification_loss = torch.nn.functional.binary_cross_entropy(
+                model.classify(z).squeeze(), train_labels.float()
+            ).item() if train_labels is not None else 0.0
+            
+            sparsity_losses.append(sparsity_loss)
+            classification_losses.append(classification_loss)
+            total_losses.append(recon_losses[-1] + model.sparsity_weight * sparsity_loss + 
+                                model.classification_weight * classification_loss)
     
     # Final progress update
     if progress_callback:
-        progress_callback(1.0, "Completed autoencoder training", 
-                      f"Final reconstruction loss: {recon_losses[-1]:.6f}, Sparsity: {sparsity_levels[-1]:.1f}%")
+        progress_callback(1.0, "Completed semi-supervised autoencoder training", 
+                      f"Final recon loss: {recon_losses[-1]:.6f}, Acc: {accuracies[-1]:.4f}, Sparsity: {sparsity_levels[-1]:.1f}%")
     
     return model, {
         'recon_losses': recon_losses,
         'sparsity_losses': sparsity_losses,
+        'classification_losses': classification_losses,
         'total_losses': total_losses,
-        'sparsity_levels': sparsity_levels
+        'sparsity_levels': sparsity_levels,
+        'accuracies': accuracies
     }
-
 
 def visualize_sparse_autoencoders(test_hidden_states, test_labels, num_layers, sparse_hidden_dim, 
                                 sparse_epochs, sparse_lr, progress_callback=None):
-    """Create comprehensive sparse autoencoder visualizations with improved parameters"""
+    """Create comprehensive sparse autoencoder visualizations with semi-supervised approach"""
     
     # Store results for each layer
     layer_results = []
@@ -1425,44 +1459,36 @@ def visualize_sparse_autoencoders(test_hidden_states, test_labels, num_layers, s
     for layer in range(num_layers):
         if progress_callback:
             progress_callback(layer / num_layers, f"Processing sparse autoencoder for layer {layer+1}/{num_layers}", 
-                             f"Training autoencoder with latent dim {sparse_hidden_dim}")
+                             f"Training semi-supervised autoencoder with latent dim {sparse_hidden_dim}")
         
         # Get features for this layer
-        train_feats = test_hidden_states[:, layer, :]
+        layer_feats = test_hidden_states[:, layer, :]
         lbls = test_labels
         
-        # Train the autoencoder with better parameters
-        ae_model, training_stats = train_sparse_autoencoder(
-            train_feats, 
+        # Train the semi-supervised autoencoder
+        ae_model, training_stats = train_semisupervised_autoencoder(
+            layer_feats, 
+            lbls,
             sparse_hidden_dim,
             epochs=sparse_epochs,
             lr=sparse_lr,
-            sparsity_target=0.05,  # Target 5% activation
-            sparsity_weight=0.2,   # Higher weight on sparsity constraint
+            sparsity_target=0.05,
+            sparsity_weight=0.1,
+            classification_weight=0.5,  # Balance between reconstruction and classification
             progress_callback=progress_callback
         )
         
         # Get latent representations
         with torch.no_grad():
-            _, z = ae_model(train_feats)
+            _, z = ae_model(layer_feats)
             
             # Calculate actual sparsity
             sparsity = ae_model.calculate_sparsity(z)
             
-            # Train a classifier on the latent space to measure truth separability
-            z_np = z.cpu().numpy()
-            labels_np = lbls.cpu().numpy()
-            
-            from sklearn.linear_model import LogisticRegression
-            from sklearn.model_selection import cross_val_score
-            
-            # Use cross-validation for more reliable accuracy estimate
-            clf = LogisticRegression(max_iter=1000)
-            cv_scores = cross_val_score(clf, z_np, labels_np, cv=5)
-            accuracy = cv_scores.mean()
-            
-            # Final fit for feature importance
-            clf.fit(z_np, labels_np)
+            # Get accuracy from the built-in classifier
+            predictions = ae_model.classify(z)
+            preds = (predictions > 0.5).float()
+            accuracy = (preds == lbls.float()).float().mean().item()
         
         # Store results for this layer
         layer_results.append({
@@ -1472,8 +1498,7 @@ def visualize_sparse_autoencoders(test_hidden_states, test_labels, num_layers, s
             'training_stats': training_stats,
             'model': ae_model,
             'accuracy': accuracy,
-            'sparsity': sparsity,
-            'feature_importances': np.abs(clf.coef_[0]) if hasattr(clf, 'coef_') else None
+            'sparsity': sparsity
         })
     
     if progress_callback:
