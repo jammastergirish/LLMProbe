@@ -9,4 +9,4 @@ then
     export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
 fi
 
-uv run --with streamlit streamlit run Home.py
+uv run --with streamlit streamlit run Home.py --server.port=8501 --server.address=0.0.0.0 --server.enableWebsocketCompression=false --server.enableCORS=false
