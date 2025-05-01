@@ -8,9 +8,11 @@ You'll need the [HuggingFace CLI](https://huggingface.co/docs/huggingface_hub/en
 
 ### Locally
 
-To run locally, you simply need to run the following command in Terminal. This will install the `uv` package manager, if you don't already have it, and start the Streamlit app.
+You need to run the following command in Terminal.
 
 `./run.sh`
+
+This will install the `uv` package manager, if you don't already have it, and start the Streamlit app.
 
 (You may need to run `chmod +x run.sh` first.)
 
