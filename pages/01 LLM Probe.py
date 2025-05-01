@@ -265,7 +265,7 @@ st.markdown("""
     width: 28px;
     height: 28px;
     border-radius: 50%;
-    background-color: #ccc;
+    background-color: #666;
     color: white;
     align-items: center;
     justify-content: center;
@@ -284,71 +284,65 @@ st.markdown("""
 # Create progress steps
 st.markdown('### Pipeline Progress')
 
-# Step 1: Load Model
-with st.container():
-    step1_container = st.empty()
-    model_status = st.empty()
-    model_progress_bar = st.empty()
-    model_progress_text = st.empty()
-    model_detail = st.empty()
+# Create 3x3 grid layout
+row1_cols = st.columns(3)
+row2_cols = st.columns(3)
 
-# Step 2: Load Dataset
-with st.container():
-    step2_container = st.empty()
-    dataset_status = st.empty()
-    dataset_progress_bar = st.empty()
-    dataset_progress_text = st.empty()
-    dataset_detail = st.empty()
-
-# Step 3: Create Representations
-with st.container():
-    step3_container = st.empty()
-    embedding_status = st.empty()
-    embedding_progress_bar = st.empty()
-    embedding_progress_text = st.empty()
-    embedding_detail = st.empty()
-
-# Step 4: Train Probe
-with st.container():
-    step4_container = st.empty()
-    training_status = st.empty()
-    training_progress_bar = st.empty()
-    training_progress_text = st.empty()
-    training_detail = st.empty()
-
-# Step 5: Train Sparse Autoencoder (if enabled)
-if use_sparse_autoencoders:
+# Step 1: Load Model (Row 1, Col 1)
+with row1_cols[0]:
     with st.container():
-        step5_container = st.empty()
-        sparse_ae_status = st.empty()
-        sparse_ae_progress_bar = st.empty()
-        sparse_ae_progress_text = st.empty()
-        sparse_ae_detail = st.empty()
+        step1_container = st.empty()
+        with step1_container.container():
+            st.markdown('<div class="step-number">1</div> <span style="font-size: 18px; font-weight: 500;">📚 Load Model</span>', unsafe_allow_html=True)
+            model_status = st.empty()
+            model_progress_bar = st.empty()
+            model_progress_text = st.empty()
+            model_detail = st.empty()
 
-# Initialize steps - start with all steps collapsed except the first
-with step1_container.container():
-    st.markdown('<div class="step-number">1</div> <span style="font-size: 18px; font-weight: 500;">📚 Load Model</span>', unsafe_allow_html=True)
+# Step 2: Load Dataset (Row 1, Col 2)
+with row1_cols[1]:
+    with st.container():
+        step2_container = st.empty()
+        with step2_container.container():
+            st.markdown('<div class="step-number">2</div> <span style="font-size: 18px; font-weight: 500;">📊 Load Dataset</span>', unsafe_allow_html=True)
+            dataset_status = st.empty()
+            dataset_progress_bar = st.empty()
+            dataset_progress_text = st.empty()
+            dataset_detail = st.empty()
 
-st.markdown('<hr style="margin: 0.5em 0; border-width: 0; background: rgba(49, 51, 63, 0.2); height: 1px;">', unsafe_allow_html=True)
+# Step 3: Create Representations (Row 1, Col 3)
+with row1_cols[2]:
+    with st.container():
+        step3_container = st.empty()
+        with step3_container.container():
+            st.markdown('<div class="step-number">3</div> <span style="font-size: 18px; font-weight: 500;">🔍 Create Representations</span>', unsafe_allow_html=True)
+            embedding_status = st.empty()
+            embedding_progress_bar = st.empty()
+            embedding_progress_text = st.empty()
+            embedding_detail = st.empty()
 
-with step2_container.container():
-    st.markdown('<div class="step-number">2</div> <span style="font-size: 18px; font-weight: 500;">📊 Load Dataset</span>', unsafe_allow_html=True)
+# Step 4: Train Probe (Row 2, Col 1)
+with row2_cols[0]:
+    with st.container():
+        step4_container = st.empty()
+        with step4_container.container():
+            st.markdown('<div class="step-number">4</div> <span style="font-size: 18px; font-weight: 500;">🧠 Train Probe</span>', unsafe_allow_html=True)
+            training_status = st.empty()
+            training_progress_bar = st.empty()
+            training_progress_text = st.empty()
+            training_detail = st.empty()
 
-st.markdown('<hr style="margin: 0.5em 0; border-width: 0; background: rgba(49, 51, 63, 0.2); height: 1px;">', unsafe_allow_html=True)
-    
-with step3_container.container():
-    st.markdown('<div class="step-number">3</div> <span style="font-size: 18px; font-weight: 500;">🔍 Create Representations</span>', unsafe_allow_html=True)
-
-st.markdown('<hr style="margin: 0.5em 0; border-width: 0; background: rgba(49, 51, 63, 0.2); height: 1px;">', unsafe_allow_html=True)
-    
-with step4_container.container():
-    st.markdown('<div class="step-number">4</div> <span style="font-size: 18px; font-weight: 500;">🧠 Train Probe</span>', unsafe_allow_html=True)
-
+# Step 5: Train Sparse Autoencoder (Row 2, Col 2)
 if use_sparse_autoencoders:
-    st.markdown('<hr style="margin: 0.5em 0; border-width: 0; background: rgba(49, 51, 63, 0.2); height: 1px;">', unsafe_allow_html=True)
-    
-    with step5_container.container():
-        st.markdown('<div class="step-number">5</div> <span style="font-size: 18px; font-weight: 500;">🧬 Train Sparse Autoencoder</span>', unsafe_allow_html=True)
+    with row2_cols[1]:
+        with st.container():
+            step5_container = st.empty()
+            with step5_container.container():
+                st.markdown('<div class="step-number">5</div> <span style="font-size: 18px; font-weight: 500;">🧬 Train Sparse Autoencoder</span>', unsafe_allow_html=True)
+                sparse_ae_status = st.empty()
+                sparse_ae_progress_bar = st.empty()
+                sparse_ae_progress_text = st.empty()
+                sparse_ae_detail = st.empty()
 
 # Log area
 with st.expander("📋 Detailed Log", expanded=False):
@@ -1340,52 +1334,42 @@ def plot_truth_projections(test_hidden_states, test_labels, probes):
 
 # Update progress functions with enhanced UI
 def update_model_progress(progress, message, details=""):
-    # Clear the container and update content
-    with step1_container.container():
-        st.markdown('<div class="step-number number-blue">1</div> <span style="font-size: 18px; font-weight: 500;">📚 Load Model</span>', unsafe_allow_html=True)
-        st.markdown(f"**{message}**")
-        model_progress_bar.progress(progress)
-        model_detail.text(details)
+    # Update content inside the container
+    model_progress_text.markdown(f"**{message}**")
+    model_progress_bar.progress(progress)
+    model_detail.text(details)
     
     add_log(f"Load Model ({progress:.0%}): {message} - {details}")
 
 def update_dataset_progress(progress, message, details=""):
-    # Clear the container and update content
-    with step2_container.container():
-        st.markdown('<div class="step-number number-blue">2</div> <span style="font-size: 18px; font-weight: 500;">📊 Load Dataset</span>', unsafe_allow_html=True)
-        st.markdown(f"**{message}**")
-        dataset_progress_bar.progress(progress)
-        dataset_detail.text(details)
+    # Update content inside the container
+    dataset_progress_text.markdown(f"**{message}**")
+    dataset_progress_bar.progress(progress)
+    dataset_detail.text(details)
     
     add_log(f"Load Dataset ({progress:.0%}): {message} - {details}")
 
 def update_embedding_progress(progress, message, details=""):
-    # Clear the container and update content
-    with step3_container.container():
-        st.markdown('<div class="step-number number-blue">3</div> <span style="font-size: 18px; font-weight: 500;">🔍 Create Representations</span>', unsafe_allow_html=True)
-        st.markdown(f"**{message}**")
-        embedding_progress_bar.progress(progress)
-        embedding_detail.text(details)
+    # Update content inside the container
+    embedding_progress_text.markdown(f"**{message}**")
+    embedding_progress_bar.progress(progress)
+    embedding_detail.text(details)
     
     add_log(f"Create Representations ({progress:.0%}): {message} - {details}")
 
 def update_training_progress(progress, message, details=""):
-    # Clear the container and update content
-    with step4_container.container():
-        st.markdown('<div class="step-number number-blue">4</div> <span style="font-size: 18px; font-weight: 500;">🧠 Train Probe</span>', unsafe_allow_html=True)
-        st.markdown(f"**{message}**")
-        training_progress_bar.progress(progress)
-        training_detail.text(details)
+    # Update content inside the container
+    training_progress_text.markdown(f"**{message}**")
+    training_progress_bar.progress(progress)
+    training_detail.text(details)
     
     add_log(f"Train Probe ({progress:.0%}): {message} - {details}")
 
 def update_sparse_ae_progress(progress, message, details=""):
-    # Clear the container and update content
-    with step5_container.container():
-        st.markdown('<div class="step-number number-blue">5</div> <span style="font-size: 18px; font-weight: 500;">🧬 Train Sparse Autoencoder</span>', unsafe_allow_html=True)
-        st.markdown(f"**{message}**")
-        sparse_ae_progress_bar.progress(progress)
-        sparse_ae_detail.text(details)
+    # Update content inside the container
+    sparse_ae_progress_text.markdown(f"**{message}**")
+    sparse_ae_progress_bar.progress(progress)
+    sparse_ae_detail.text(details)
     
     add_log(f"Sparse AE ({progress:.0%}): {message} - {details}")
 
@@ -1393,22 +1377,37 @@ def mark_complete(status_element, message="Complete"):
     if status_element == model_status:
         with step1_container.container():
             st.markdown('<div class="step-number number-green">1</div> <span style="font-size: 18px; font-weight: 500;">📚 Load Model</span>', unsafe_allow_html=True)
+            model_progress_text.success("✅ Complete")
+            model_progress_bar.progress(1.0)
+            model_detail.empty()
     
     elif status_element == dataset_status:
         with step2_container.container():
             st.markdown('<div class="step-number number-green">2</div> <span style="font-size: 18px; font-weight: 500;">📊 Load Dataset</span>', unsafe_allow_html=True)
+            dataset_progress_text.success("✅ Complete")
+            dataset_progress_bar.progress(1.0)
+            dataset_detail.empty()
     
     elif status_element == embedding_status:
         with step3_container.container():
             st.markdown('<div class="step-number number-green">3</div> <span style="font-size: 18px; font-weight: 500;">🔍 Create Representations</span>', unsafe_allow_html=True)
+            embedding_progress_text.success("✅ Complete")
+            embedding_progress_bar.progress(1.0)
+            embedding_detail.empty()
     
     elif status_element == training_status:
         with step4_container.container():
             st.markdown('<div class="step-number number-green">4</div> <span style="font-size: 18px; font-weight: 500;">🧠 Train Probe</span>', unsafe_allow_html=True)
+            training_progress_text.success("✅ Complete")
+            training_progress_bar.progress(1.0)
+            training_detail.empty()
     
     elif status_element == sparse_ae_status:
         with step5_container.container():
             st.markdown('<div class="step-number number-green">5</div> <span style="font-size: 18px; font-weight: 500;">🧬 Train Sparse Autoencoder</span>', unsafe_allow_html=True)
+            sparse_ae_progress_text.success("✅ Complete")
+            sparse_ae_progress_bar.progress(1.0)
+            sparse_ae_detail.empty()
 
 def save_fig(fig, filename):
     """Save figure to disk"""
