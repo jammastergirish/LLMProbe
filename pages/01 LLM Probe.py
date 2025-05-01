@@ -870,131 +870,6 @@ def get_hidden_states_batched(examples, model, tokenizer, model_name, output_lay
     else:
         return all_hidden_states, all_labels
 
-# Function to extract hidden states
-def get_hidden_states(examples, model, tokenizer, model_name, output_layer, dataset_type="", return_layer=None, progress_callback=None):
-    """Extract hidden states without batching"""
-    all_hidden_states = []
-    labels = []
-    
-    is_decoder = is_decoder_only_model(model_name)
-    is_transformerlens = "HookedTransformer" in str(type(model))
-    
-    # Get dimensions for pre-allocation if possible
-    if is_transformerlens:
-        n_layers = model.cfg.n_layers
-        d_model = model.cfg.d_model
-    else:
-        if hasattr(model, "config"):
-            if hasattr(model.config, "num_hidden_layers"):
-                n_layers = model.config.num_hidden_layers + 1
-            else:
-                n_layers = 12  # Default fallback
-            
-            if hasattr(model.config, "hidden_size"):
-                d_model = model.config.hidden_size
-            else:
-                d_model = 768  # Default fallback
-    
-    progress_callback(0, f"Preparing to process {len(examples)} {dataset_type} examples", 
-                     f"Extracting features for each example one at a time")
-    
-    # Process each example
-    for i, ex in enumerate(examples):
-        # Show current example processing details
-        progress = (i) / len(examples)
-        example_text = ex["text"]
-        if len(example_text) > 50:
-            example_text = example_text[:47] + "..."
-        
-        progress_callback(progress, 
-                         f"Processing {dataset_type} example {i+1}/{len(examples)}", 
-                         f"Text: '{example_text}' | Label: {ex['label']}")
-        
-        # Process the example
-        if is_transformerlens:
-            tokens = tokenizer.encode(ex["text"], return_tensors="pt").to(model.cfg.device)
-            
-            # Run with cache to extract all activations
-            _, cache = model.run_with_cache(tokens)
-            
-            # Choose position index (last token for decoder-only, first otherwise)
-            pos = -1 if is_decoder else 0
-            
-            # Get activations from each layer
-            layer_outputs = [
-                cache[output_layer, layer_idx][0, pos, :]  # shape: (d_model,)
-                for layer_idx in range(model.cfg.n_layers)
-            ]
-            
-            # Stack into shape: (num_layers, d_model)
-            hidden_stack = torch.stack(layer_outputs)
-            
-        else:
-            if "qwen" in model_name.lower():
-                # Wrap input with Qwen's chat format
-                messages = [{"role": "user", "content": ex["text"]}]
-                prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
-            else:
-                prompt = ex["text"]
-
-            inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=128)
-            inputs = {k: v.to(device) for k, v in inputs.items()}
-            
-            with torch.no_grad():
-                outputs = model(**inputs)
-                hidden_states = outputs.hidden_states
-            
-            # Use last token for decoder-only models, first for encoder-only
-            if is_decoder:
-                cls_embeddings = torch.stack([layer[:, -1, :] for layer in hidden_states])
-            elif output_layer == "CLS":
-                cls_embeddings = torch.stack([layer[:, 0, :] for layer in hidden_states])
-            elif output_layer == "mean":
-                cls_embeddings = torch.stack([
-                    layer.mean(dim=1) for layer in hidden_states
-                ])
-            elif output_layer == "max":
-                cls_embeddings = torch.stack([
-                    layer.max(dim=1).values for layer in hidden_states
-                ])
-            elif output_layer.startswith("token_index_"):
-                index = int(output_layer.split("_")[-1])
-                layer_reprs = []
-
-                for layer in hidden_states:
-                    seq_len = layer.size(1)  # sequence length
-                    safe_index = min(index, seq_len - 1)
-                    layer_reprs.append(layer[:, safe_index, :])  # (1, dim)
-
-                cls_embeddings = torch.stack(layer_reprs)  # shape: [num_layers, 1, dim]
-
-                if index >= seq_len:
-                    add_log(f"⚠️ Token index {index} out of bounds, using last token at position {seq_len - 1}")
-            else:
-                raise ValueError(f"Unsupported encoder output layer: {output_layer}")
-            
-            # [num_layers, hidden_dim]
-            hidden_stack = cls_embeddings.squeeze(1)
-        
-        all_hidden_states.append(hidden_stack)
-        labels.append(ex["label"])
-        
-        # Sleep a tiny bit to allow UI to update
-        time.sleep(0.01)
-    
-    # Convert lists to tensors
-    all_hidden_states = torch.stack(all_hidden_states).to(device)
-    labels = torch.tensor(labels).to(device)
-    
-    # Update to 100%
-    progress_callback(1.0, f"Completed processing all {len(examples)} {dataset_type} examples", 
-                     f"Created tensor of shape {all_hidden_states.shape}")
-    
-    # Allow slicing if return_layer is specified
-    if return_layer is not None:
-        return all_hidden_states[:, return_layer, :], labels  # (N, D)
-    else:
-        return all_hidden_states, labels  # (N, L, D)
 
 class LinearProbe(torch.nn.Module):
     def __init__(self, dim):
@@ -1003,6 +878,7 @@ class LinearProbe(torch.nn.Module):
     
     def forward(self, x):
         return torch.sigmoid(self.linear(x)).squeeze(-1)
+
 
 def train_probe(features, labels, epochs=100, lr=1e-2):
     probe = LinearProbe(features.shape[1]).to(device)
@@ -1017,6 +893,7 @@ def train_probe(features, labels, epochs=100, lr=1e-2):
         optimizer.step()
     
     return probe, loss.item()
+
 
 def get_num_layers(model):
     if hasattr(model, "config") and hasattr(model.config, "num_hidden_layers"):
@@ -1931,80 +1808,6 @@ def create_sparse_ae_visualizations(layer_results, output_tab):
     # Return figures for saving
     return overview_figs, layer_analysis_figs
 
-def analyze_latent_space(z, labels, layer, st, max_dims=5):
-    import matplotlib.pyplot as plt
-    import numpy as np
-
-    labels = np.array(labels)
-
-    # --- 1. Plot individual dimensions ---
-    st.subheader(f"🔍 Latent Dimensions (z) Histograms for Layer {layer}")
-    fig, axs = plt.subplots(1, max_dims, figsize=(max_dims * 3, 3))
-    for i in range(min(z.shape[1], max_dims)):
-        # Get data for this dimension
-        true_data = z[labels == 1][:, i]
-        false_data = z[labels == 0][:, i]
-        
-        # Handle histogram binning adaptively
-        try:
-            if len(np.unique(true_data)) <= 1 or len(np.unique(false_data)) <= 1:
-                # If all values are identical, use just 1 bin
-                axs[i].hist(true_data, bins=1, alpha=0.6, label="True", color="#4CAF50")
-                axs[i].hist(false_data, bins=1, alpha=0.6, label="False", color="#F44336")
-            else:
-                # Determine appropriate number of bins based on data
-                bins = min(30, max(5, min(len(np.unique(true_data)), len(np.unique(false_data)))))
-                axs[i].hist(true_data, bins=bins, alpha=0.6, label="True", color="#4CAF50")
-                axs[i].hist(false_data, bins=bins, alpha=0.6, label="False", color="#F44336")
-        except ValueError:
-            # Fallback to 'auto' if we still get errors
-            axs[i].hist(true_data, bins='auto', alpha=0.6, label="True", color="#4CAF50")
-            axs[i].hist(false_data, bins='auto', alpha=0.6, label="False", color="#F44336")
-            
-        axs[i].set_title(f"z[:, {i}]")
-        axs[i].set_xticks([])
-        axs[i].set_yticks([])
-    axs[0].legend()
-    st.pyplot(fig)
-
-    # --- 2. Train linear classifier ---
-    st.subheader(f"📏 Linear Classifier on z (Layer {layer})")
-    clf = LogisticRegression(max_iter=1000)
-    clf.fit(z, labels)
-    preds = clf.predict(z)
-
-    acc = accuracy_score(labels, preds)
-    prec = precision_score(labels, preds)
-    rec = recall_score(labels, preds)
-    f1 = f1_score(labels, preds)
-
-    st.write(
-        f"**Accuracy:** {acc:.4f} | **Precision:** {prec:.4f} | **Recall:** {rec:.4f} | **F1:** {f1:.4f}")
-
-    # --- 3. PCA and t-SNE plots ---
-    st.subheader(f"🌀 PCA / t-SNE Visualization (Layer {layer})")
-
-    pca = PCA(n_components=2)
-    z_pca = pca.fit_transform(z)
-    fig_pca, ax = plt.subplots()
-    ax.scatter(z_pca[labels == 1][:, 0], z_pca[labels == 1]
-               [:, 1], label="True", alpha=0.6, color="#4CAF50")
-    ax.scatter(z_pca[labels == 0][:, 0], z_pca[labels == 0]
-               [:, 1], label="False", alpha=0.6, color="#F44336")
-    ax.set_title("PCA on z")
-    ax.legend()
-    st.pyplot(fig_pca)
-
-    tsne = TSNE(n_components=2, perplexity=30, learning_rate=200, n_iter=1000)
-    z_tsne = tsne.fit_transform(z)
-    fig_tsne, ax = plt.subplots()
-    ax.scatter(z_tsne[labels == 1][:, 0], z_tsne[labels == 1]
-               [:, 1], label="True", alpha=0.6, color="#4CAF50")
-    ax.scatter(z_tsne[labels == 0][:, 0], z_tsne[labels == 0]
-               [:, 1], label="False", alpha=0.6, color="#F44336")
-    ax.set_title("t-SNE on z")
-    ax.legend()
-    st.pyplot(fig_tsne)
 
 
 if run_button:
