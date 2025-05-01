@@ -23,4 +23,5 @@ You'll likely want to run the app remotely in order to harness more compute powe
 - You'll then want to SSH into the instance. Click, "Connect," follow the SSH instructions (setting up an SSH key, and pasting the public key into RunPod settings), and then follow the instructions to Connect.
 - Once you're in via SSH, you'll need to run `git clone https://github.com/jammastergirish/LLMProbe`. Then run `./runpod_firstrun.sh`, which will install the `uv` package manager, the HuggingFace CLI, and will prompt you to enter your HuggingFace token.
 - It'll then run the Streamlit app, to which you can connect in your browser via instructions in the Connect panel at RunPod.
+- On future runs, you can simply run `./run.sh` on the instance.
 
