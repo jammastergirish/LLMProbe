@@ -8,8 +8,6 @@ You'll need the [HuggingFace CLI](https://huggingface.co/docs/huggingface_hub/en
 
 ### Locally
 
-You need to run the following command in Terminal.
-
 `./run.sh`
 
 This will install the `uv` package manager, if you don't already have it, and start the Streamlit app.
@@ -18,7 +16,7 @@ This will install the `uv` package manager, if you don't already have it, and st
 
 ### Remotely
 
-You'll likely want to run the app remotely in order to harness more compute power. I'd recommend setting up an instance on [RunPod](https://runpod.io?ref=avnw83xb) as follows:
+I'd recommend setting up an instance on [RunPod](https://runpod.io?ref=avnw83xb) as follows:
 
 - Create a new pod and select your GPU.
 - Press 'Edit Template' and add `8501` to the list of exposed HTTP ports.
