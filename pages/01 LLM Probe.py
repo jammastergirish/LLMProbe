@@ -1,3 +1,6 @@
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from sklearn.manifold import TSNE
 import nest_asyncio
 import streamlit as st
 import torch
@@ -6,6 +9,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from utils.file_manager import create_run_folder, save_json, save_graph
+from utils.autoencoders import (
+    SparseAutoencoder, 
+    train_supervised_autoencoder, 
+    train_unsupervised_autoencoder, 
+    analyze_latents,
+    get_latent_features
+)
 from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
 import random
@@ -211,6 +221,16 @@ with st.sidebar.expander("⚙️ Probe Options"):
     batch_size = st.number_input("Batch size", min_value=1, max_value=64, value=16,
                                  help="Larger batches are faster but use more memory. Use smaller values for large models.")
 
+use_sparse_autoencoders = st.sidebar.checkbox("Use Sparse Autoencoders", value=True)
+
+if use_sparse_autoencoders:
+    with st.sidebar.expander("🧬 Sparse Autoencoder Options"):
+        use_supervised_ae = st.checkbox("Use Supervised Training", value=True, 
+                                        help="When enabled, uses labels to guide autoencoder training. When disabled, uses unsupervised training.")
+        sparse_hidden_dim = st.number_input("Latent Dimension (z)", min_value=2, max_value=1024, value=256, step=2)
+        sparse_epochs = st.number_input("Sparse AE Training Epochs", min_value=10, max_value=500, value=100)
+        sparse_lr = st.number_input("Sparse AE Learning Rate", min_value=0.0001, max_value=0.1, value=0.01, format="%.4f")
+
 run_button = st.sidebar.button("🚀 Run Analysis", type="primary", use_container_width=True)
 
 col1, col2 = st.columns([3, 2])
@@ -246,46 +266,92 @@ with col2:
         Larger batch sizes and sequence lengths will significantly increase memory usage. Consider reducing these values if you encounter out-of-memory errors.
         """)
 
-# Create columns for progress indicators
-progress_col1, progress_col2 = st.columns(2)
+# Simple CSS for number circles only
+st.markdown("""
+<style>
+.step-number {
+    display: inline-flex;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background-color: #666;
+    color: white;
+    align-items: center;
+    justify-content: center;
+    margin-right: 10px;
+    font-weight: bold;
+}
+.number-blue {
+    background-color: #2196F3;
+}
+.number-green {
+    background-color: #4CAF50;
+}
+</style>
+""", unsafe_allow_html=True)
 
-with progress_col1:
-    # st.markdown('<div class="progress-container">', unsafe_allow_html=True)
-    st.markdown('#### 📚 Load Model')
-    model_status = st.empty()
-    model_status.markdown('<span class="status-idle">Waiting to start...</span>', unsafe_allow_html=True)
-    model_progress_bar = st.progress(0)
-    model_progress_text = st.empty()
-    model_detail = st.empty()
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    # st.markdown('<div class="progress-container">', unsafe_allow_html=True)
-    st.markdown('#### 🔍 Create Representations')
-    embedding_status = st.empty()
-    embedding_status.markdown('<span class="status-idle">Waiting to start...</span>', unsafe_allow_html=True)
-    embedding_progress_bar = st.progress(0)
-    embedding_progress_text = st.empty()
-    embedding_detail = st.empty()
-    st.markdown('</div>', unsafe_allow_html=True)
+# Create progress steps
+st.markdown('### Pipeline Progress')
 
-with progress_col2:
-    # st.markdown('<div class="progress-container">', unsafe_allow_html=True)
-    st.markdown('#### 📊 Load Dataset')
-    dataset_status = st.empty()
-    dataset_status.markdown('<span class="status-idle">Waiting to start...</span>', unsafe_allow_html=True)
-    dataset_progress_bar = st.progress(0)
-    dataset_progress_text = st.empty()
-    dataset_detail = st.empty()
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    # st.markdown('<div class="progress-container">', unsafe_allow_html=True)
-    st.markdown('#### 🧠 Train Probe')
-    training_status = st.empty()
-    training_status.markdown('<span class="status-idle">Waiting to start...</span>', unsafe_allow_html=True)
-    training_progress_bar = st.progress(0)
-    training_progress_text = st.empty()
-    training_detail = st.empty()
-    st.markdown('</div>', unsafe_allow_html=True)
+# Create 3x3 grid layout
+row1_cols = st.columns(3)
+row2_cols = st.columns(3)
+
+# Step 1: Load Model (Row 1, Col 1)
+with row1_cols[0]:
+    with st.container():
+        step1_container = st.empty()
+        with step1_container.container():
+            st.markdown('<div class="step-number">1</div> <span style="font-size: 18px; font-weight: 500;">📚 Load Model</span>', unsafe_allow_html=True)
+            model_status = st.empty()
+            model_progress_bar = st.empty()
+            model_progress_text = st.empty()
+            model_detail = st.empty()
+
+# Step 2: Load Dataset (Row 1, Col 2)
+with row1_cols[1]:
+    with st.container():
+        step2_container = st.empty()
+        with step2_container.container():
+            st.markdown('<div class="step-number">2</div> <span style="font-size: 18px; font-weight: 500;">📊 Load Dataset</span>', unsafe_allow_html=True)
+            dataset_status = st.empty()
+            dataset_progress_bar = st.empty()
+            dataset_progress_text = st.empty()
+            dataset_detail = st.empty()
+
+# Step 3: Create Representations (Row 1, Col 3)
+with row1_cols[2]:
+    with st.container():
+        step3_container = st.empty()
+        with step3_container.container():
+            st.markdown('<div class="step-number">3</div> <span style="font-size: 18px; font-weight: 500;">🔍 Create Representations</span>', unsafe_allow_html=True)
+            embedding_status = st.empty()
+            embedding_progress_bar = st.empty()
+            embedding_progress_text = st.empty()
+            embedding_detail = st.empty()
+
+# Step 4: Train Probe (Row 2, Col 1)
+with row2_cols[0]:
+    with st.container():
+        step4_container = st.empty()
+        with step4_container.container():
+            st.markdown('<div class="step-number">4</div> <span style="font-size: 18px; font-weight: 500;">🧠 Train Probe</span>', unsafe_allow_html=True)
+            training_status = st.empty()
+            training_progress_bar = st.empty()
+            training_progress_text = st.empty()
+            training_detail = st.empty()
+
+# Step 5: Train Sparse Autoencoder (Row 2, Col 2)
+if use_sparse_autoencoders:
+    with row2_cols[1]:
+        with st.container():
+            step5_container = st.empty()
+            with step5_container.container():
+                st.markdown('<div class="step-number">5</div> <span style="font-size: 18px; font-weight: 500;">🧬 Train Sparse Autoencoder</span>', unsafe_allow_html=True)
+                sparse_ae_status = st.empty()
+                sparse_ae_progress_bar = st.empty()
+                sparse_ae_progress_text = st.empty()
+                sparse_ae_detail = st.empty()
 
 # Log area
 with st.expander("📋 Detailed Log", expanded=False):
@@ -304,12 +370,22 @@ st.markdown("""
 <div class="section-header">Results</div>
 """, unsafe_allow_html=True)
 
-tabs = st.tabs(["Accuracy Analysis", "PCA Visualization", "Truth Direction Analysis", "Data View"])
+main_tabs = st.tabs(["📊 PROBE ANALYSIS", "🧬 SPARSE AUTOENCODER ANALYSIS"])
+probe_tab = main_tabs[0]
+sparse_ae_tab = main_tabs[1]
 
-accuracy_tab = tabs[0]
-pca_tab = tabs[1]
-projection_tab = tabs[2] 
-data_tab = tabs[3]
+# Create sub-tabs for probe analysis
+with probe_tab:
+    tabs = st.tabs(["Accuracy Analysis", "PCA Visualization", "Truth Direction Analysis", "Data View"])
+    accuracy_tab = tabs[0]
+    pca_tab = tabs[1]
+    projection_tab = tabs[2] 
+    data_tab = tabs[3]
+
+# Create sub-tabs for sparse autoencoder analysis
+with sparse_ae_tab:
+    st.info("Enable sparse autoencoders in the sidebar and run the analysis to see results here.")
+    sparse_tab = st.empty()
 
 # Create empty containers for results
 with accuracy_tab:
@@ -326,6 +402,9 @@ with data_tab:
     data_display = st.empty()
     layer_select_container = st.empty()
     layer_analysis = st.empty()
+
+with sparse_tab:
+    sparse_tab.info("Sparse Autoencoder results will appear here if enabled and run.")
 
 def load_model_and_tokenizer(model_name, progress_callback):
     """Load model and tokenizer with progress updates"""
@@ -1264,45 +1343,591 @@ def plot_truth_projections(test_hidden_states, test_labels, probes):
 
 # Update progress functions with enhanced UI
 def update_model_progress(progress, message, details=""):
-    model_status.markdown('<span class="status-running">Running</span>', unsafe_allow_html=True)
-    model_progress_bar.progress(progress)
+    # Update content inside the container
     model_progress_text.markdown(f"**{message}**")
+    model_progress_bar.progress(progress)
     model_detail.text(details)
+    
     add_log(f"Load Model ({progress:.0%}): {message} - {details}")
 
 def update_dataset_progress(progress, message, details=""):
-    dataset_status.markdown('<span class="status-running">Running</span>', unsafe_allow_html=True)
-    dataset_progress_bar.progress(progress)
+    # Update content inside the container
     dataset_progress_text.markdown(f"**{message}**")
+    dataset_progress_bar.progress(progress)
     dataset_detail.text(details)
+    
     add_log(f"Load Dataset ({progress:.0%}): {message} - {details}")
 
 def update_embedding_progress(progress, message, details=""):
-    embedding_status.markdown('<span class="status-running">Running</span>', unsafe_allow_html=True)
-    embedding_progress_bar.progress(progress)
+    # Update content inside the container
     embedding_progress_text.markdown(f"**{message}**")
+    embedding_progress_bar.progress(progress)
     embedding_detail.text(details)
+    
     add_log(f"Create Representations ({progress:.0%}): {message} - {details}")
 
 def update_training_progress(progress, message, details=""):
-    training_status.markdown('<span class="status-running">Running</span>', unsafe_allow_html=True)
-    training_progress_bar.progress(progress)
+    # Update content inside the container
     training_progress_text.markdown(f"**{message}**")
+    training_progress_bar.progress(progress)
     training_detail.text(details)
+    
     add_log(f"Train Probe ({progress:.0%}): {message} - {details}")
 
+def update_sparse_ae_progress(progress, message, details=""):
+    # Update content inside the container
+    sparse_ae_progress_text.markdown(f"**{message}**")
+    sparse_ae_progress_bar.progress(progress)
+    sparse_ae_detail.text(details)
+    
+    add_log(f"Sparse AE ({progress:.0%}): {message} - {details}")
+
 def mark_complete(status_element, message="Complete"):
-    status_element.markdown(f'<span class="status-success">{message}</span>', unsafe_allow_html=True)
+    if status_element == model_status:
+        with step1_container.container():
+            st.markdown('<div class="step-number number-green">1</div> <span style="font-size: 18px; font-weight: 500;">📚 Load Model</span>', unsafe_allow_html=True)
+            model_progress_text.success("✅ Complete")
+            model_progress_bar.progress(1.0)
+            model_detail.empty()
+    
+    elif status_element == dataset_status:
+        with step2_container.container():
+            st.markdown('<div class="step-number number-green">2</div> <span style="font-size: 18px; font-weight: 500;">📊 Load Dataset</span>', unsafe_allow_html=True)
+            dataset_progress_text.success("✅ Complete")
+            dataset_progress_bar.progress(1.0)
+            dataset_detail.empty()
+    
+    elif status_element == embedding_status:
+        with step3_container.container():
+            st.markdown('<div class="step-number number-green">3</div> <span style="font-size: 18px; font-weight: 500;">🔍 Create Representations</span>', unsafe_allow_html=True)
+            embedding_progress_text.success("✅ Complete")
+            embedding_progress_bar.progress(1.0)
+            embedding_detail.empty()
+    
+    elif status_element == training_status:
+        with step4_container.container():
+            st.markdown('<div class="step-number number-green">4</div> <span style="font-size: 18px; font-weight: 500;">🧠 Train Probe</span>', unsafe_allow_html=True)
+            training_progress_text.success("✅ Complete")
+            training_progress_bar.progress(1.0)
+            training_detail.empty()
+    
+    elif status_element == sparse_ae_status:
+        with step5_container.container():
+            st.markdown('<div class="step-number number-green">5</div> <span style="font-size: 18px; font-weight: 500;">🧬 Train Sparse Autoencoder</span>', unsafe_allow_html=True)
+            sparse_ae_progress_text.success("✅ Complete")
+            sparse_ae_progress_bar.progress(1.0)
+            sparse_ae_detail.empty()
 
 def save_fig(fig, filename):
     """Save figure to disk"""
     fig.savefig(filename)
     add_log(f"Saved figure to {filename}")
+    
+def visualize_sparse_autoencoders(test_hidden_states, test_labels, num_layers, sparse_hidden_dim, 
+                                sparse_epochs, sparse_lr, use_supervised=True, progress_callback=None):
+    """Create comprehensive sparse autoencoder visualizations
+    
+    Args:
+        test_hidden_states: Hidden states from model
+        test_labels: Labels for data points
+        num_layers: Number of model layers
+        sparse_hidden_dim: Dimension for sparse latent space
+        sparse_epochs: Number of training epochs
+        sparse_lr: Learning rate
+        use_supervised: Whether to use supervised training (True) or unsupervised (False)
+        progress_callback: Function to call with progress updates
+    """
+    
+    # Store results for each layer
+    layer_results = []
+    total_layers = num_layers
+    
+    # Create a progress wrapper that normalizes progress across all layers
+    def layer_progress_callback(layer_progress, message, details):
+        # Calculate overall progress: completed layers + current layer progress
+        overall_progress = (layer + layer_progress) / total_layers
+        progress_callback(overall_progress, message, details)
+    
+    # Process each layer
+    for layer in range(num_layers):
+        # Get features for this layer
+        layer_feats = test_hidden_states[:, layer, :]
+        lbls = test_labels
+        
+        # Update main progress with layer info
+        if progress_callback:
+            progress_callback(layer / num_layers, 
+                             f"Processing layer {layer+1}/{num_layers}", 
+                             f"Starting autoencoder training for layer {layer}")
+        
+        # Metrics to store
+        training_stats = {}
+        ae_model = None
+        
+        # Train the appropriate autoencoder based on supervision setting
+        if use_supervised:
+            # Use our imported supervised autoencoder
+            ae_model, training_stats = train_supervised_autoencoder(
+                layer_feats, 
+                lbls,
+                hidden_dim=sparse_hidden_dim,
+                epochs=sparse_epochs,
+                lr=sparse_lr,
+                sparsity_weight=0.1,
+                supervision_weight=0.5,
+                progress_callback=layer_progress_callback if progress_callback else None
+            )
+        else:
+            # Use our imported unsupervised autoencoder
+            ae_model, training_stats = train_unsupervised_autoencoder(
+                layer_feats,
+                hidden_dim=sparse_hidden_dim,
+                epochs=sparse_epochs,
+                lr=sparse_lr,
+                sparsity_weight=0.1,
+                progress_callback=layer_progress_callback if progress_callback else None
+            )
+        
+        # Get latent representations
+        with torch.no_grad():
+            _, z = ae_model(layer_feats)
+            
+            # Calculate sparsity (percentage of activations near zero)
+            sparsity = ae_model.calculate_sparsity(z)
+            
+        # For unsupervised models, we need to train a separate classifier to get accuracy
+        if use_supervised:
+            # For supervised models, we can directly compute accuracy from latent features
+            with torch.no_grad():
+                # Train a simple classifier for accuracy measurement
+                from sklearn.linear_model import LogisticRegression
+                clf = LogisticRegression(max_iter=1000)
+                clf.fit(z.cpu().numpy(), lbls.cpu().numpy())
+                accuracy = clf.score(z.cpu().numpy(), lbls.cpu().numpy())
+        else:
+            # For unsupervised models, we need to train a classifier
+            with torch.no_grad():
+                # Train a simple classifier for accuracy measurement
+                from sklearn.linear_model import LogisticRegression
+                clf = LogisticRegression(max_iter=1000)
+                clf.fit(z.cpu().numpy(), lbls.cpu().numpy())
+                accuracy = clf.score(z.cpu().numpy(), lbls.cpu().numpy())
+        
+        # Store results for this layer
+        layer_results.append({
+            'layer': layer,
+            'z': z.cpu().numpy(),
+            'labels': lbls.cpu().numpy(),
+            'training_stats': training_stats,
+            'model': ae_model,
+            'accuracy': accuracy,
+            'sparsity': sparsity
+        })
+    
+    if progress_callback:
+        progress_callback(1.0, "Completed all sparse autoencoders", 
+                         f"Processed {num_layers} layers")
+    
+    return layer_results
+
+def create_sparse_ae_visualizations(layer_results, output_tab):
+    """Generate and display visualizations for sparse autoencoder results
+    
+    Returns:
+        tuple: Two dictionaries containing the generated figures:
+            - overview_figs: Dict with overview figures (accuracy_vs_layer, sparsity_vs_layer)
+            - layer_analysis_figs: Dict with layer-specific figures (pca, feature_importance)
+    """
+    
+    # Create tabs for different analysis views
+    output_tab.empty()  # Clear the previous content
+    view_tabs = output_tab.tabs(["Overview", "Layer Analysis", "Latent Space", "Training Curves"])
+    
+    # Store figures to return for saving
+    overview_figs = {}
+    layer_analysis_figs = {}
+    
+    # 1. Overview Tab - Summary metrics across all layers
+    with view_tabs[0]:
+        st.subheader("📊 Sparse Autoencoder Performance Overview")
+        
+        # Create summary dataframe
+        summary_data = []
+        for result in layer_results:
+            layer = result['layer']
+            z = result['z']
+            labels = result['labels']
+            
+            # Calculate sparsity (% of zero activations)
+            sparsity = np.mean(z < 0.01) * 100
+            
+            # Train a simple classifier on z to measure truth separability
+            from sklearn.linear_model import LogisticRegression
+            clf = LogisticRegression(max_iter=1000)
+            clf.fit(z, labels)
+            acc = clf.score(z, labels)
+            
+            # Calculate final losses - handle both old and new training stats structures
+            if 'recon_losses' in result['training_stats']:
+                final_recon_loss = result['training_stats']['recon_losses'][-1]
+            else:
+                # For backward compatibility
+                final_recon_loss = 0.0
+            
+            # Add to summary
+            summary_data.append({
+                'Layer': layer,
+                'Accuracy': acc,
+                'Sparsity (%)': sparsity,
+                'Recon Loss': final_recon_loss
+            })
+        
+        # Display summary table
+        summary_df = pd.DataFrame(summary_data)
+        st.dataframe(summary_df)
+        
+        # Plot accuracy vs. layer
+        fig_acc, ax = plt.subplots(figsize=(10, 6))
+        ax.plot(summary_df['Layer'], summary_df['Accuracy'], marker='o', linestyle='-', linewidth=2)
+        ax.set_xlabel('Layer')
+        ax.set_ylabel('Classifier Accuracy on z')
+        ax.set_title('Truth Separability in Latent Space')
+        ax.grid(True, alpha=0.3)
+        st.pyplot(fig_acc)
+        overview_figs['accuracy_vs_layer'] = fig_acc
+        
+        # Plot sparsity vs. layer
+        fig_sparsity, ax = plt.subplots(figsize=(10, 6))
+        ax.plot(summary_df['Layer'], summary_df['Sparsity (%)'], marker='o', linestyle='-', linewidth=2, color='orange')
+        ax.set_xlabel('Layer')
+        ax.set_ylabel('Sparsity (%)')
+        ax.set_title('Latent Representation Sparsity by Layer')
+        ax.grid(True, alpha=0.3)
+        st.pyplot(fig_sparsity)
+        overview_figs['sparsity_vs_layer'] = fig_sparsity
+    
+    # 2. Layer Analysis Tab - Select a specific layer to analyze
+    with view_tabs[1]:
+        st.subheader("🔎 Individual Layer Analysis")
+        
+        # Layer selector
+        selected_layer = st.selectbox(
+            "Select layer to analyze:",
+            options=range(len(layer_results)),
+            format_func=lambda x: f"Layer {x}"
+        )
+        
+        # Get the selected layer's data
+        result = layer_results[selected_layer]
+        z = result['z']
+        labels = result['labels']
+        
+        # Create columns for metrics and visualizations
+        col1, col2 = st.columns([1, 2])
+        
+        with col1:
+            st.subheader(f"Layer {selected_layer} Metrics")
+            
+            # Calculate various metrics
+            sparsity = np.mean(z < 0.01) * 100
+            
+            # Average activation per class
+            true_avg = np.mean(z[labels == 1], axis=0)
+            false_avg = np.mean(z[labels == 0], axis=0)
+            
+            # Display metrics
+            st.metric("Sparsity", f"{sparsity:.2f}%")
+            
+            # Train a simple classifier on z
+            from sklearn.linear_model import LogisticRegression
+            clf = LogisticRegression(max_iter=1000)
+            clf.fit(z, labels)
+            acc = clf.score(z, labels)
+            prec = precision_score(labels, clf.predict(z))
+            rec = recall_score(labels, clf.predict(z))
+            f1 = f1_score(labels, clf.predict(z))
+            
+            metrics_df = pd.DataFrame({
+                'Metric': ['Accuracy', 'Precision', 'Recall', 'F1 Score'],
+                'Value': [f"{acc:.4f}", f"{prec:.4f}", f"{rec:.4f}", f"{f1:.4f}"]
+            })
+            st.table(metrics_df)
+        
+        with col2:
+            # Top features visualization
+            st.subheader("Feature Importance Analysis")
+            
+            # Calculate difference between True and False average activations
+            feature_diffs = np.abs(true_avg - false_avg)
+            
+            # Get top features
+            top_indices = np.argsort(-feature_diffs)[:10]
+            
+            # Create visualization
+            fig_features, ax = plt.subplots(figsize=(10, 6))
+            
+            # For each top feature, show the activation difference
+            feature_names = [f"z{i}" for i in top_indices]
+            true_vals = true_avg[top_indices]
+            false_vals = false_avg[top_indices]
+            
+            x = np.arange(len(feature_names))
+            width = 0.35
+            
+            ax.bar(x - width/2, true_vals, width, label='True', color='#4CAF50', alpha=0.7)
+            ax.bar(x + width/2, false_vals, width, label='False', color='#F44336', alpha=0.7)
+            
+            ax.set_xlabel('Latent Dimension')
+            ax.set_ylabel('Average Activation')
+            ax.set_title('Top Distinguishing Features between True/False')
+            ax.set_xticks(x)
+            ax.set_xticklabels(feature_names)
+            ax.legend()
+            
+            st.pyplot(fig_features)
+            
+            # Save this figure for export if it's a midpoint layer
+            mid_layer = len(layer_results) // 2
+            if selected_layer == mid_layer or not layer_analysis_figs.get('feature_importance'):
+                layer_analysis_figs['feature_importance'] = fig_features
+        
+        # PCA visualization of latent space
+        st.subheader("Latent Space Visualization")
+        
+        pca = PCA(n_components=2)
+        z_pca = pca.fit_transform(z)
+        
+        fig_pca, ax = plt.subplots(figsize=(10, 6))
+        scatter_true = ax.scatter(z_pca[labels == 1, 0], z_pca[labels == 1, 1], 
+                                  alpha=0.7, label="True", color="#4CAF50")
+        scatter_false = ax.scatter(z_pca[labels == 0, 0], z_pca[labels == 0, 1], 
+                                   alpha=0.7, label="False", color="#F44336")
+        
+        ax.set_title(f"PCA of Layer {selected_layer} Latent Space")
+        ax.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]:.2%} variance)")
+        ax.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]:.2%} variance)")
+        ax.legend()
+        
+        st.pyplot(fig_pca)
+        
+        # Save for export - typically we choose a middle layer
+        mid_layer = len(layer_results) // 2
+        if selected_layer == mid_layer or not layer_analysis_figs.get('pca'):
+            layer_analysis_figs['pca'] = fig_pca
+    
+    # 3. Latent Space Tab - Explore the latent dimensions
+    with view_tabs[2]:
+        st.subheader("🧠 Latent Space Exploration")
+        
+        # Layer selector
+        selected_layer = st.selectbox(
+            "Select layer:",
+            options=range(len(layer_results)),
+            format_func=lambda x: f"Layer {x}",
+            key="latent_layer_selector"
+        )
+        
+        # Get the selected layer's data
+        result = layer_results[selected_layer]
+        z = result['z']
+        labels = result['labels']
+        
+        # Create visualization of individual dimensions
+        st.subheader(f"Top Latent Dimensions for Layer {selected_layer}")
+        
+        # Calculate separation power for each dimension
+        true_avg = np.mean(z[labels == 1], axis=0)
+        false_avg = np.mean(z[labels == 0], axis=0)
+        dimension_diffs = np.abs(true_avg - false_avg)
+        
+        # Get top dimensions
+        num_dimensions = min(8, z.shape[1])
+        top_dims = np.argsort(-dimension_diffs)[:num_dimensions]
+        
+        # Create subplots for histograms
+        fig, axs = plt.subplots(2, 4, figsize=(16, 8))
+        axs = axs.flatten()
+        
+        for i, dim_idx in enumerate(top_dims[:min(8, len(top_dims))]):
+            ax = axs[i]
+            
+            # Check data range before creating histogram
+            true_data = z[labels == 1, dim_idx]
+            false_data = z[labels == 0, dim_idx]
+            
+            # Auto-determine appropriate number of bins based on data
+            if len(np.unique(true_data)) <= 1 or len(np.unique(false_data)) <= 1:
+                # If all values are identical, use just 1 bin
+                ax.hist(true_data, bins=1, alpha=0.7, label="True", color="#4CAF50")
+                ax.hist(false_data, bins=1, alpha=0.7, label="False", color="#F44336")
+            else:
+                # Determine appropriate number of bins (max 30, min 5, or auto)
+                try:
+                    ax.hist(true_data, bins=min(30, max(5, len(np.unique(true_data)))), 
+                           alpha=0.7, label="True", color="#4CAF50")
+                    ax.hist(false_data, bins=min(30, max(5, len(np.unique(false_data)))), 
+                           alpha=0.7, label="False", color="#F44336")
+                except ValueError:
+                    # Fallback to 'auto' if we still get bin errors
+                    ax.hist(true_data, bins='auto', alpha=0.7, label="True", color="#4CAF50")
+                    ax.hist(false_data, bins='auto', alpha=0.7, label="False", color="#F44336")
+            
+            ax.set_title(f"Dimension {dim_idx}")
+            
+            if i == 0:
+                ax.legend()
+            
+            # Remove ticks for cleaner appearance
+            ax.set_xticks([])
+            ax.set_yticks([])
+        
+        st.pyplot(fig)
+        
+        # Create t-SNE visualization
+        st.subheader("t-SNE Visualization")
+        
+        # Use a smaller subset for t-SNE to improve performance
+        max_points = 1000
+        if z.shape[0] > max_points:
+            indices = np.random.choice(z.shape[0], max_points, replace=False)
+            z_subset = z[indices]
+            labels_subset = labels[indices]
+        else:
+            z_subset = z
+            labels_subset = labels
+        
+        # Compute t-SNE
+        tsne = TSNE(n_components=2, perplexity=min(30, z_subset.shape[0] // 5), 
+                    random_state=42, learning_rate="auto")
+        z_tsne = tsne.fit_transform(z_subset)
+        
+        fig, ax = plt.subplots(figsize=(10, 8))
+        scatter_true = ax.scatter(z_tsne[labels_subset == 1, 0], z_tsne[labels_subset == 1, 1], 
+                                  alpha=0.7, label="True", color="#4CAF50")
+        scatter_false = ax.scatter(z_tsne[labels_subset == 0, 0], z_tsne[labels_subset == 0, 1], 
+                                   alpha=0.7, label="False", color="#F44336")
+        
+        ax.set_title(f"t-SNE of Layer {selected_layer} Latent Space")
+        ax.legend()
+        
+        st.pyplot(fig)
+    
+    # 4. Training Curves Tab - Show loss curves for each layer
+    with view_tabs[3]:
+        st.subheader("📈 Training Curves")
+        
+        # Layer selector
+        selected_layer = st.selectbox(
+            "Select layer:",
+            options=range(len(layer_results)),
+            format_func=lambda x: f"Layer {x}",
+            key="training_layer_selector"
+        )
+        
+        # Get the selected layer's data
+        result = layer_results[selected_layer]
+        training_stats = result['training_stats']
+        
+        # Create plots for losses
+        fig_training, ax = plt.subplots(figsize=(10, 6))
+        
+        epochs = range(1, len(training_stats['recon_losses']) + 1)
+        
+        ax.plot(epochs, training_stats['recon_losses'], label='Reconstruction Loss', color='#2196F3')
+        ax.plot(epochs, training_stats['sparsity_losses'], label='Sparsity Loss', color='#FF9800')
+        ax.plot(epochs, training_stats['total_losses'], label='Total Loss', color='#E91E63')
+        
+        ax.set_title(f"Layer {selected_layer} Training Curves")
+        ax.set_xlabel("Epoch")
+        ax.set_ylabel("Loss")
+        ax.set_yscale('log')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        st.pyplot(fig_training)
+    
+    # Return figures for saving
+    return overview_figs, layer_analysis_figs
+
+def analyze_latent_space(z, labels, layer, st, max_dims=5):
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    labels = np.array(labels)
+
+    # --- 1. Plot individual dimensions ---
+    st.subheader(f"🔍 Latent Dimensions (z) Histograms for Layer {layer}")
+    fig, axs = plt.subplots(1, max_dims, figsize=(max_dims * 3, 3))
+    for i in range(min(z.shape[1], max_dims)):
+        # Get data for this dimension
+        true_data = z[labels == 1][:, i]
+        false_data = z[labels == 0][:, i]
+        
+        # Handle histogram binning adaptively
+        try:
+            if len(np.unique(true_data)) <= 1 or len(np.unique(false_data)) <= 1:
+                # If all values are identical, use just 1 bin
+                axs[i].hist(true_data, bins=1, alpha=0.6, label="True", color="#4CAF50")
+                axs[i].hist(false_data, bins=1, alpha=0.6, label="False", color="#F44336")
+            else:
+                # Determine appropriate number of bins based on data
+                bins = min(30, max(5, min(len(np.unique(true_data)), len(np.unique(false_data)))))
+                axs[i].hist(true_data, bins=bins, alpha=0.6, label="True", color="#4CAF50")
+                axs[i].hist(false_data, bins=bins, alpha=0.6, label="False", color="#F44336")
+        except ValueError:
+            # Fallback to 'auto' if we still get errors
+            axs[i].hist(true_data, bins='auto', alpha=0.6, label="True", color="#4CAF50")
+            axs[i].hist(false_data, bins='auto', alpha=0.6, label="False", color="#F44336")
+            
+        axs[i].set_title(f"z[:, {i}]")
+        axs[i].set_xticks([])
+        axs[i].set_yticks([])
+    axs[0].legend()
+    st.pyplot(fig)
+
+    # --- 2. Train linear classifier ---
+    st.subheader(f"📏 Linear Classifier on z (Layer {layer})")
+    clf = LogisticRegression(max_iter=1000)
+    clf.fit(z, labels)
+    preds = clf.predict(z)
+
+    acc = accuracy_score(labels, preds)
+    prec = precision_score(labels, preds)
+    rec = recall_score(labels, preds)
+    f1 = f1_score(labels, preds)
+
+    st.write(
+        f"**Accuracy:** {acc:.4f} | **Precision:** {prec:.4f} | **Recall:** {rec:.4f} | **F1:** {f1:.4f}")
+
+    # --- 3. PCA and t-SNE plots ---
+    st.subheader(f"🌀 PCA / t-SNE Visualization (Layer {layer})")
+
+    pca = PCA(n_components=2)
+    z_pca = pca.fit_transform(z)
+    fig_pca, ax = plt.subplots()
+    ax.scatter(z_pca[labels == 1][:, 0], z_pca[labels == 1]
+               [:, 1], label="True", alpha=0.6, color="#4CAF50")
+    ax.scatter(z_pca[labels == 0][:, 0], z_pca[labels == 0]
+               [:, 1], label="False", alpha=0.6, color="#F44336")
+    ax.set_title("PCA on z")
+    ax.legend()
+    st.pyplot(fig_pca)
+
+    tsne = TSNE(n_components=2, perplexity=30, learning_rate=200, n_iter=1000)
+    z_tsne = tsne.fit_transform(z)
+    fig_tsne, ax = plt.subplots()
+    ax.scatter(z_tsne[labels == 1][:, 0], z_tsne[labels == 1]
+               [:, 1], label="True", alpha=0.6, color="#4CAF50")
+    ax.scatter(z_tsne[labels == 0][:, 0], z_tsne[labels == 0]
+               [:, 1], label="False", alpha=0.6, color="#F44336")
+    ax.set_title("t-SNE on z")
+    ax.legend()
+    st.pyplot(fig_tsne)
 
 
-# Main app logic
 if run_button:
-    run_folder, run_id = create_run_folder(model_name = model_name, dataset = dataset_source)
+    run_folder, run_id = create_run_folder(
+        model_name=model_name, dataset=dataset_source)
 
     # Reset progress displays
     add_log(
@@ -1310,7 +1935,7 @@ if run_button:
 
     initial_stats_df = pd.DataFrame({
         'Statistic': [
-            'Model', 
+            'Model',
             'Dataset',
             'Compute Device',
             'Batch Size',
@@ -1329,6 +1954,31 @@ if run_button:
     stats_placeholder.table(initial_stats_df)
 
     try:
+        # Save parameters.json file
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        parameters = {
+            "datetime": current_time,
+            "model_name": model_name,
+            "dataset": dataset_source,
+            "output_activation": output_layer,
+            "device": str(device),
+            "batch_size": batch_size,
+            "train_epochs": train_epochs,
+            "learning_rate": learning_rate,
+            "max_samples": max_samples,
+            "test_size": test_size,
+            "use_control_tasks": use_control_tasks,
+            "use_sparse_autoencoders": use_sparse_autoencoders
+        }
+        
+        if use_sparse_autoencoders:
+            parameters["sparse_hidden_dim"] = sparse_hidden_dim
+            parameters["sparse_epochs"] = sparse_epochs
+            parameters["sparse_lr"] = sparse_lr
+            parameters["use_supervised_ae"] = use_supervised_ae
+            
+        save_json(parameters, os.path.join(run_folder, "parameters.json"))
+        
         # 1. Load model with progress
         update_model_progress(0, "Loading model...", "Initializing")
         tokenizer, model = load_model_and_tokenizer(
@@ -1348,7 +1998,7 @@ if run_button:
                     dataset_source,
                     update_dataset_progress,
                     max_samples=max_samples,
-                    custom_file=custom_file  # Pass the custom file directly
+                    custom_file=custom_file
                 )
             else:
                 update_dataset_progress(
@@ -1360,7 +2010,7 @@ if run_button:
                 dataset_source,
                 update_dataset_progress,
                 max_samples=max_samples,
-                custom_file=None  # Or just omit the parameter
+                custom_file=None
             )
 
         # Check if we got any examples
@@ -1370,12 +2020,12 @@ if run_button:
             st.stop()
 
         mark_complete(dataset_status)
-        
+
         # Split data
         train_examples, test_examples = train_test_split(
             examples, test_size=test_size, random_state=42, shuffle=True
         )
-        
+
         # Update stats display
         stats_df = pd.DataFrame({
             'Statistic': [
@@ -1406,62 +2056,75 @@ if run_button:
             ]
         })
         stats_placeholder.table(stats_df)
-        
+
         # 3. Extract embeddings with progress
-        update_embedding_progress(0, "Extracting embeddings for TRAIN set...", "Initializing")
-        
+        update_embedding_progress(
+            0, "Extracting embeddings for TRAIN set...", "Initializing")
+
         # Extract train embeddings
         train_hidden_states, train_labels = get_hidden_states_batched(
-            train_examples, model, tokenizer, model_name, output_layer, 
+            train_examples, model, tokenizer, model_name, output_layer,
             dataset_type="TRAIN", progress_callback=update_embedding_progress, batch_size=batch_size
         )
-        
+
         # Extract test embeddings
-        update_embedding_progress(0, "Extracting embeddings for TEST set...", "Initializing")
+        update_embedding_progress(
+            0, "Extracting embeddings for TEST set...", "Initializing")
         test_hidden_states, test_labels = get_hidden_states_batched(
             test_examples, model, tokenizer, model_name, output_layer,
             dataset_type="TEST", progress_callback=update_embedding_progress, batch_size=batch_size
         )
         mark_complete(embedding_status)
-        
+
         # 4. Train probes with progress
         update_training_progress(0, "Training probes...", "Initializing")
-        
+
         num_layers = get_num_layers(model)
         results = train_and_evaluate_model(
-            train_hidden_states, train_labels, 
+            train_hidden_states, train_labels,
             test_hidden_states, test_labels,
             num_layers, use_control_tasks,
             progress_callback=update_training_progress,
             epochs=train_epochs, lr=learning_rate
         )
         mark_complete(training_status)
-        
+
         # 5. Plot and display results
         with accuracy_tab:
             # Selectivity plot (if using control tasks)
             if use_control_tasks and results['selectivities']:
                 fig_sel = plot_selectivity_by_layer(
-                    results['selectivities'], results['accuracies'], 
+                    results['selectivities'], results['accuracies'],
                     results['control_accuracies'], model_name, dataset_source
                 )
                 selectivity_plot.pyplot(fig_sel)
+                # Save the selectivity plot
+                save_graph(fig_sel, os.path.join(run_folder, "selectivity_plot.png"))
             else:
-                fig_acc = plot_accuracy_by_layer(results['accuracies'], model_name, dataset_source)
+                fig_acc = plot_accuracy_by_layer(
+                    results['accuracies'], model_name, dataset_source)
                 accuracy_plot.pyplot(fig_acc)
-        
+                # Save the accuracy plot
+                save_graph(fig_acc, os.path.join(run_folder, "accuracy_plot.png"))
+
         with pca_tab:
             # PCA grid
             pca_plot.info("Generating PCA visualization...")
-            fig_pca = plot_pca_grid(test_hidden_states, test_labels, results['probes'], model_name, dataset_source)
+            fig_pca = plot_pca_grid(
+                test_hidden_states, test_labels, results['probes'], model_name, dataset_source)
             pca_plot.pyplot(fig_pca)
-        
+            # Save the PCA grid visualization
+            save_graph(fig_pca, os.path.join(run_folder, "pca_plot.png"))
+
         with projection_tab:
             # Truth projection grid
             projection_plot.info("Generating truth projection histograms...")
-            fig_proj = plot_truth_projections(test_hidden_states, test_labels, results['probes'])
+            fig_proj = plot_truth_projections(
+                test_hidden_states, test_labels, results['probes'])
             projection_plot.pyplot(fig_proj)
-        
+            # Save the projection plot
+            save_graph(fig_proj, os.path.join(run_folder, "proj_plot.png"))
+
         with data_tab:
             # Display numeric results
             data_display.subheader("Layer-wise Metrics")
@@ -1484,7 +2147,8 @@ if run_button:
             )
 
             # Create one tab per layer
-            layer_tabs = data_display.tabs([f"Layer {i}" for i in range(num_layers)])
+            layer_tabs = data_display.tabs(
+                [f"Layer {i}" for i in range(num_layers)])
 
             # Display analysis for the selected layer tab
             for i, layer_tab in enumerate(layer_tabs):
@@ -1529,9 +2193,9 @@ if run_button:
                         # Display metrics
                         metrics_df = pd.DataFrame({
                             'Metric': ['Accuracy', 'Precision', 'Recall', 'F1 Score', 'True Positives',
-                                    'False Positives', 'True Negatives', 'False Negatives'],
+                                       'False Positives', 'True Negatives', 'False Negatives'],
                             'Value': [f"{accuracy:.4f}", f"{precision:.4f}", f"{recall:.4f}", f"{f1:.4f}",
-                                    str(TP), str(FP), str(TN), str(FN)]
+                                      str(TP), str(FP), str(TN), str(FN)]
                         })
                         st.table(metrics_df)
 
@@ -1542,11 +2206,14 @@ if run_button:
                                 test_feats, probe.linear.weight[0])
 
                             # Get projection values for true and false examples
-                            true_proj = projection[test_labels == 1].cpu().numpy()
-                            false_proj = projection[test_labels == 0].cpu().numpy()
+                            true_proj = projection[test_labels == 1].cpu(
+                            ).numpy()
+                            false_proj = projection[test_labels == 0].cpu(
+                            ).numpy()
 
                             # Create histogram
-                            fig_proj_individual, ax_proj = plt.subplots(figsize=(8, 3))
+                            fig_proj_individual, ax_proj = plt.subplots(
+                                figsize=(8, 3))
                             bins = np.linspace(
                                 min(projection.min().item(), -3),
                                 max(projection.max().item(), 3),
@@ -1555,14 +2222,15 @@ if run_button:
 
                             # Plot histograms
                             ax_proj.hist(true_proj, bins=bins, alpha=0.7,
-                                        label="True", color="#4CAF50")
+                                         label="True", color="#4CAF50")
                             ax_proj.hist(false_proj, bins=bins, alpha=0.7,
-                                        label="False", color="#F44336")
+                                         label="False", color="#F44336")
 
                             # Add a vertical line at the decision boundary (0.0)
                             ax_proj.axvline(x=0, color='black',
                                             linestyle='--', alpha=0.5)
-                            ax_proj.set_xlabel("Projection onto Truth Direction")
+                            ax_proj.set_xlabel(
+                                "Projection onto Truth Direction")
                             ax_proj.set_ylabel("Count")
                             ax_proj.legend()
 
@@ -1573,18 +2241,21 @@ if run_button:
                         # Create a small confusion matrix plot
                         fig, ax = plt.subplots(figsize=(4, 3))
                         cm = np.array([[TN, FP], [FN, TP]])
-                        im = ax.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
-                        ax.set_title(f"Layer {selected_layer} Confusion Matrix")
+                        im = ax.imshow(
+                            cm, interpolation='nearest', cmap=plt.cm.Blues)
+                        ax.set_title(
+                            f"Layer {selected_layer} Confusion Matrix")
 
                         # Show all ticks and label them
                         ax.set_xticks(np.arange(2))
                         ax.set_yticks(np.arange(2))
-                        ax.set_xticklabels(['Predicted False', 'Predicted True'])
+                        ax.set_xticklabels(
+                            ['Predicted False', 'Predicted True'])
                         ax.set_yticklabels(['Actual False', 'Actual True'])
 
                         # Rotate tick labels and set alignment
                         plt.setp(ax.get_xticklabels(), rotation=45,
-                                ha="right", rotation_mode="anchor")
+                                 ha="right", rotation_mode="anchor")
 
                         # Loop over data dimensions and create text annotations
                         for i in range(2):
@@ -1617,18 +2288,23 @@ if run_button:
                             incorrect_mask_cpu = incorrect_mask.cpu()
 
                             # Separate by true/false and correct/incorrect
-                            true_correct = (test_labels_cpu == 1) & correct_mask_cpu
-                            false_correct = (test_labels_cpu == 0) & correct_mask_cpu
+                            true_correct = (test_labels_cpu ==
+                                            1) & correct_mask_cpu
+                            false_correct = (
+                                test_labels_cpu == 0) & correct_mask_cpu
                             true_incorrect = (test_labels_cpu ==
-                                            1) & incorrect_mask_cpu
+                                              1) & incorrect_mask_cpu
                             false_incorrect = (test_labels_cpu ==
-                                            0) & incorrect_mask_cpu
+                                               0) & incorrect_mask_cpu
 
                             # Get the confidence scores for each category
                             true_correct_conf = confidences[true_correct.cpu()]
-                            false_correct_conf = confidences[false_correct.cpu()]
-                            true_incorrect_conf = confidences[true_incorrect.cpu()]
-                            false_incorrect_conf = confidences[false_incorrect.cpu()]
+                            false_correct_conf = confidences[false_correct.cpu(
+                            )]
+                            true_incorrect_conf = confidences[true_incorrect.cpu(
+                            )]
+                            false_incorrect_conf = confidences[false_incorrect.cpu(
+                            )]
 
                             # Get indices for sorting
                             if len(true_correct_conf) > 0:
@@ -1674,7 +2350,8 @@ if run_button:
                                     idx = true_correct_sorted[0]
                                     st.markdown(
                                         f"Example: `{test_examples[idx]['text']}`")
-                                    st.markdown(f"Confidence: {confidences[idx]:.4f}")
+                                    st.markdown(
+                                        f"Confidence: {confidences[idx]:.4f}")
                                 else:
                                     st.markdown("No examples found")
 
@@ -1700,7 +2377,8 @@ if run_button:
                                     idx = false_incorrect_sorted[0]
                                     st.markdown(
                                         f"Example: `{test_examples[idx]['text']}`")
-                                    st.markdown(f"Confidence: {confidences[idx]:.4f}")
+                                    st.markdown(
+                                        f"Confidence: {confidences[idx]:.4f}")
                                 else:
                                     st.markdown("No examples found")
 
@@ -1715,47 +2393,84 @@ if run_button:
                                         f"Confidence: {1-confidences[idx]:.4f}")
                                 else:
                                     st.markdown("No examples found")
-        # Add completion message
-        st.success(f"Analysis complete! Best layer: {best_layer} with accuracy {best_acc:.4f}")
 
-        # Save parameters
-        parameters = {
-            "model_name": model_name,
-            "dataset": dataset_source,
-            "output_activation": output_layer,
-            "device": device_name,
-            "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "use_control_tasks": use_control_tasks,
-            "train_epochs": train_epochs,
-            "learning_rate": learning_rate,
-            "max_samples": max_samples,
-            "test_size": test_size,
-            "batch_size": batch_size
+        # Save the results
+        result_data = {
+            "accuracies": results['accuracies'],
+            "test_losses": results['test_losses'],
+            "best_layer": int(best_layer),
+            "best_accuracy": float(best_acc),
+            "num_layers": int(num_layers)
         }
-        save_json(parameters, os.path.join(run_folder, "parameters.json"))
-
-        # Save results
-        results_summary = {
-            "accuracy_by_layer": results['accuracies']
-        }
-        save_json(results_summary, os.path.join(run_folder, "results.json"))
-
-        # Save graphs
-        accuracy_plot_path = os.path.join(run_folder, "accuracy_plot.png")
-        save_graph(fig_acc if not use_control_tasks else fig_sel,
-                   accuracy_plot_path)
-
-        pca_path = os.path.join(run_folder, "pca_plot.png")
-        save_graph(fig_pca,
-                   pca_path)
-
-        proj_path = os.path.join(run_folder, "proj_plot.png")
-        save_graph(fig_proj,
-                   proj_path)
-
-
-        st.success(f"Run saved successfully! Run ID: {run_id}")
         
+        if use_control_tasks:
+            result_data["control_accuracies"] = results['control_accuracies']
+            result_data["selectivities"] = results['selectivities']
+            
+        save_json(result_data, os.path.join(run_folder, "results.json"))
+        
+        # Add completion message
+        st.success(
+            f"Analysis complete! Best layer: {best_layer} with accuracy {best_acc:.4f}")
+
+        # Process sparse autoencoders
+        if use_sparse_autoencoders:
+            # Initialize the progress for sparse autoencoder
+            update_sparse_ae_progress(0.0, "Running sparse autoencoder analysis", "Initializing...")
+            
+            # Switch to the sparse autoencoder tab for visualizations
+            with sparse_ae_tab:
+                layer_results = visualize_sparse_autoencoders(
+                    test_hidden_states,
+                    test_labels,
+                    num_layers,
+                    sparse_hidden_dim,
+                    sparse_epochs,
+                    sparse_lr,
+                    use_supervised=use_supervised_ae,  # Use the new supervised toggle
+                    progress_callback=update_sparse_ae_progress
+                )
+
+                # Create visualizations in the sparse tab and get the figures
+                overview_figs, layer_analysis_figs = create_sparse_ae_visualizations(layer_results, sparse_tab)
+                
+                # Save all sparse autoencoder figures
+                if 'accuracy_vs_layer' in overview_figs:
+                    save_graph(overview_figs['accuracy_vs_layer'], os.path.join(run_folder, "sparse_ae_accuracy_plot.png"))
+                if 'sparsity_vs_layer' in overview_figs:
+                    save_graph(overview_figs['sparsity_vs_layer'], os.path.join(run_folder, "sparse_ae_sparsity_plot.png"))
+                
+                # Save layer analysis figures
+                if 'pca' in layer_analysis_figs:
+                    save_graph(layer_analysis_figs['pca'], os.path.join(run_folder, "sparse_ae_latent_pca.png"))
+                if 'feature_importance' in layer_analysis_figs:
+                    save_graph(layer_analysis_figs['feature_importance'], os.path.join(run_folder, "sparse_ae_feature_importance.png"))
+                
+                # Save detailed sparse autoencoder metrics
+                sparse_results = {
+                    "layer_metrics": [
+                        {
+                            "layer": result["layer"],
+                            "sparsity": float(np.mean(result["z"] < 0.01) * 100),
+                            "accuracy": float(result.get("accuracy", 0.0)),
+                            "final_recon_loss": float(result["training_stats"]["recon_losses"][-1])
+                        }
+                        for result in layer_results
+                    ],
+                    "summary": {
+                        "best_layer": int(max(range(len(layer_results)), key=lambda i: layer_results[i].get("accuracy", 0.0))),
+                        "mean_sparsity": float(np.mean([np.mean(result["z"] < 0.01) * 100 for result in layer_results])),
+                        "latent_dim": sparse_hidden_dim
+                    }
+                }
+                save_json(sparse_results, os.path.join(run_folder, "sparse_ae_results.json"))
+                
+                # Mark the sparse autoencoder task as complete
+                mark_complete(sparse_ae_status, "Complete")
+        else:
+            with sparse_ae_tab:
+                st.warning("Enable sparse autoencoders in the sidebar to view results.")
+
     except Exception as e:
         st.error(f"An error occurred: {str(e)}")
         add_log(f"ERROR: {str(e)}")

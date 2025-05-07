@@ -46,7 +46,16 @@ SAVED_DATA_DIR = "saved_data"
 def create_run_folder(model_name, dataset):
     """Create a unique folder for the current run."""
     os.makedirs(SAVED_DATA_DIR, exist_ok=True)
-    run_id = sanitize_for_filesystem(f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{model_name}_{dataset}")
+    
+    # Sanitize each component
+    safe_model_name = sanitize_for_filesystem(model_name)
+    safe_dataset = sanitize_for_filesystem(dataset)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    
+    # Create run ID from sanitized components
+    run_id = f"{timestamp}_{safe_model_name}_{safe_dataset}"
+    
+    # Create folder
     run_folder = os.path.join(SAVED_DATA_DIR, run_id)
     os.makedirs(run_folder, exist_ok=True)
     return run_folder, run_id
