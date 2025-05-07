@@ -1,3 +1,4 @@
 .DS_Store
 
 saved_data/
+.claude/settings.local.json
