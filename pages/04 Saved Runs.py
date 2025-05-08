@@ -98,6 +98,59 @@ if os.path.exists(SAVED_DATA_DIR):
                         st.caption("🧭 TRUTH DIRECTION PLOT")
                         st.image(truth_direction_plot_path,
                                  use_container_width=True)
+
+                    # --- Add Per-Layer Visualizations ---
+                    st.markdown("--- ")  # Separator
+                    st.subheader("Per-Layer Visualizations")
+
+                    layers_dir = os.path.join(run_folder, "layers")
+                    if os.path.exists(layers_dir) and os.path.isdir(layers_dir):
+                        layer_subdirs = sorted(
+                            [d for d in os.listdir(layers_dir) if os.path.isdir(
+                                os.path.join(layers_dir, d)) and d.isdigit()],
+                            key=int  # Sort numerically
+                        )
+
+                        if layer_subdirs:
+                            layer_viz_tabs = st.tabs(
+                                [f"Layer {d}" for d in layer_subdirs])
+
+                            for idx, layer_num_str in enumerate(layer_subdirs):
+                                with layer_viz_tabs[idx]:
+                                    layer_viz_dir = os.path.join(
+                                        layers_dir, layer_num_str)
+
+                                    # Define expected paths
+                                    probe_weights_path = os.path.join(
+                                        layer_viz_dir, "probe_weights.png")
+                                    activation_diff_path = os.path.join(
+                                        layer_viz_dir, "activation_diff.png")
+                                    truth_proj_path = os.path.join(
+                                        layer_viz_dir, "truth_projection.png")
+                                    conf_matrix_path = os.path.join(
+                                        layer_viz_dir, "confusion_matrix.png")
+
+                                    # Display if exists
+                                    if os.path.exists(probe_weights_path):
+                                        st.image(
+                                            probe_weights_path, caption="Probe Neuron Weights", use_container_width=True)
+                                    if os.path.exists(activation_diff_path):
+                                        st.image(
+                                            activation_diff_path, caption="Mean Activation Difference (True-False)", use_container_width=True)
+                                    if os.path.exists(truth_proj_path):
+                                        st.image(
+                                            truth_proj_path, caption="Truth Direction Projection", use_container_width=True)
+                                    if os.path.exists(conf_matrix_path):
+                                        st.image(
+                                            conf_matrix_path, caption="Confusion Matrix", use_container_width=True)
+
+                        else:
+                            st.info(
+                                "No per-layer visualization subdirectories found.")
+                    else:
+                        st.info(
+                            "No per-layer visualizations were saved for this run.")
+                    # --- End Per-Layer Visualizations ---
     else:
         st.info("No saved runs found.")
 else:

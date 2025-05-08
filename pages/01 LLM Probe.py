@@ -1500,6 +1500,15 @@ if run_button:
                             ax_probe_weights.grid(
                                 True, axis='y', linestyle='--', alpha=0.7)
                             plt.tight_layout()
+
+                            # --- SAVE FIGURE ---
+                            layer_save_dir = os.path.join(
+                                run_folder, "layers", str(selected_layer))
+                            os.makedirs(layer_save_dir, exist_ok=True)
+                            save_graph(fig_probe_weights, os.path.join(
+                                layer_save_dir, "probe_weights.png"))
+                            # --- END SAVE ---
+
                             st.pyplot(fig_probe_weights)
 
                             with st.expander("What does this chart show?", expanded=False):
@@ -1548,6 +1557,12 @@ if run_button:
                                 ax_diff_activations.grid(
                                     True, axis='y', linestyle='--', alpha=0.7)
                                 plt.tight_layout()
+
+                                # --- SAVE FIGURE ---
+                                save_graph(fig_diff_activations, os.path.join(
+                                    layer_save_dir, "activation_diff.png"))
+                                # --- END SAVE ---
+
                                 st.pyplot(fig_diff_activations)
 
                                 with st.expander("What does this chart show?", expanded=False):
@@ -1656,6 +1671,11 @@ if run_button:
                                 ax_proj.set_ylabel("Count")
                                 ax_proj.legend()
 
+                                # --- SAVE FIGURE ---
+                                save_graph(fig_proj_individual, os.path.join(
+                                    layer_save_dir, "truth_projection.png"))
+                                # --- END SAVE ---
+
                                 st.pyplot(fig_proj_individual)
                                 with st.expander("What does this chart show?", expanded=False):
                                     st.markdown("""
@@ -1700,6 +1720,13 @@ if run_button:
                                             color="w" if cm[i, j] > cm.max()/2 else "black")
 
                             plt.tight_layout()
+
+                            # --- SAVE FIGURE ---
+                            # Note: fig object for confusion matrix is already defined in this scope
+                            save_graph(fig, os.path.join(
+                                layer_save_dir, "confusion_matrix.png"))
+                            # --- END SAVE ---
+
                             st.pyplot(fig)
                             with st.expander("What does this chart show?", expanded=False):
                                 st.markdown("""
