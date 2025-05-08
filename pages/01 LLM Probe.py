@@ -296,34 +296,38 @@ with st.expander("📋 Detailed Log", expanded=False):
         log_placeholder.code("\n".join(log_text), language="")
 
 # Results area
-results_container = st.container()
 st.markdown("""
 <div class="section-header">Results</div>
 """, unsafe_allow_html=True)
 
-tabs = st.tabs(["Accuracy Analysis", "PCA Visualization",
-               "Truth Direction Analysis", "Data View"])
+# Create Main Tabs
+main_tabs = st.tabs(
+    ["Probe Analysis", "Sparse Autoencoder Analysis (Coming Soon)"])
 
-accuracy_tab = tabs[0]
-pca_tab = tabs[1]
-projection_tab = tabs[2]
-data_tab = tabs[3]
+# Setup Probe Analysis Sub-Tabs and placeholders
+with main_tabs[0]:
+    probe_tabs = st.tabs(["Accuracy Analysis", "PCA Visualization",
+                          "Truth Direction Analysis", "Data View"])
+    accuracy_tab_container = probe_tabs[0]
+    pca_tab_container = probe_tabs[1]
+    projection_tab_container = probe_tabs[2]
+    data_tab_container = probe_tabs[3]
 
-# Create empty containers for results
-with accuracy_tab:
-    accuracy_plot = st.empty()
-    selectivity_plot = st.empty()
+    # Define empty containers within the sub-tabs for later population
+    with accuracy_tab_container:
+        accuracy_plot = st.empty()
+        selectivity_plot = st.empty()
+    with pca_tab_container:
+        pca_plot = st.empty()
+    with projection_tab_container:
+        projection_plot = st.empty()
+    with data_tab_container:
+        # data_display = st.empty() # Content will be added directly later
+        pass  # Data view content is complex, added dynamically
 
-with pca_tab:
-    pca_plot = st.empty()
-
-with projection_tab:
-    projection_plot = st.empty()
-
-with data_tab:
-    data_display = st.empty()
-    layer_select_container = st.empty()
-    layer_analysis = st.empty()
+# Placeholder for the second main tab
+with main_tabs[1]:
+    st.info("Analysis for Sparse Autoencoders will be added here.")
 
 
 def load_model_and_tokenizer(model_name, progress_callback):
@@ -826,132 +830,6 @@ def get_hidden_states_batched(examples, model, tokenizer, model_name, output_lay
         return all_hidden_states[:, return_layer, :], all_labels
     else:
         return all_hidden_states, all_labels
-
-# # Function to extract hidden states
-# def get_hidden_states(examples, model, tokenizer, model_name, output_layer, dataset_type="", return_layer=None, progress_callback=None):
-#     """Extract hidden states without batching"""
-#     all_hidden_states = []
-#     labels = []
-
-#     is_decoder = is_decoder_only_model(model_name)
-#     is_transformerlens = "HookedTransformer" in str(type(model))
-
-#     # Get dimensions for pre-allocation if possible
-#     if is_transformerlens:
-#         n_layers = model.cfg.n_layers
-#         d_model = model.cfg.d_model
-#     else:
-#         if hasattr(model, "config"):
-#             if hasattr(model.config, "num_hidden_layers"):
-#                 n_layers = model.config.num_hidden_layers + 1
-#             else:
-#                 n_layers = 12  # Default fallback
-
-#             if hasattr(model.config, "hidden_size"):
-#                 d_model = model.config.hidden_size
-#             else:
-#                 d_model = 768  # Default fallback
-
-#     progress_callback(0, f"Preparing to process {len(examples)} {dataset_type} examples",
-#                      f"Extracting features for each example one at a time")
-
-#     # Process each example
-#     for i, ex in enumerate(examples):
-#         # Show current example processing details
-#         progress = (i) / len(examples)
-#         example_text = ex["text"]
-#         if len(example_text) > 50:
-#             example_text = example_text[:47] + "..."
-
-#         progress_callback(progress,
-#                          f"Processing {dataset_type} example {i+1}/{len(examples)}",
-#                          f"Text: '{example_text}' | Label: {ex['label']}")
-
-#         # Process the example
-#         if is_transformerlens:
-#             tokens = tokenizer.encode(ex["text"], return_tensors="pt").to(model.cfg.device)
-
-#             # Run with cache to extract all activations
-#             _, cache = model.run_with_cache(tokens)
-
-#             # Choose position index (last token for decoder-only, first otherwise)
-#             pos = -1 if is_decoder else 0
-
-#             # Get activations from each layer
-#             layer_outputs = [
-#                 cache[output_layer, layer_idx][0, pos, :]  # shape: (d_model,)
-#                 for layer_idx in range(model.cfg.n_layers)
-#             ]
-
-#             # Stack into shape: (num_layers, d_model)
-#             hidden_stack = torch.stack(layer_outputs)
-
-#         else:
-#             if "qwen" in model_name.lower():
-#                 # Wrap input with Qwen's chat format
-#                 messages = [{"role": "user", "content": ex["text"]}]
-#                 prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
-#             else:
-#                 prompt = ex["text"]
-
-#             inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=128)
-#             inputs = {k: v.to(device) for k, v in inputs.items()}
-
-#             with torch.no_grad():
-#                 outputs = model(**inputs)
-#                 hidden_states = outputs.hidden_states
-
-#             # Use last token for decoder-only models, first for encoder-only
-#             if is_decoder:
-#                 cls_embeddings = torch.stack([layer[:, -1, :] for layer in hidden_states])
-#             elif output_layer == "CLS":
-#                 cls_embeddings = torch.stack([layer[:, 0, :] for layer in hidden_states])
-#             elif output_layer == "mean":
-#                 cls_embeddings = torch.stack([
-#                     layer.mean(dim=1) for layer in hidden_states
-#                 ])
-#             elif output_layer == "max":
-#                 cls_embeddings = torch.stack([
-#                     layer.max(dim=1).values for layer in hidden_states
-#                 ])
-#             elif output_layer.startswith("token_index_"):
-#                 index = int(output_layer.split("_")[-1])
-#                 layer_reprs = []
-
-#                 for layer in hidden_states:
-#                     seq_len = layer.size(1)  # sequence length
-#                     safe_index = min(index, seq_len - 1)
-#                     layer_reprs.append(layer[:, safe_index, :])  # (1, dim)
-
-#                 cls_embeddings = torch.stack(layer_reprs)  # shape: [num_layers, 1, dim]
-
-#                 if index >= seq_len:
-#                     add_log(f"⚠️ Token index {index} out of bounds, using last token at position {seq_len - 1}")
-#             else:
-#                 raise ValueError(f"Unsupported encoder output layer: {output_layer}")
-
-#             # [num_layers, hidden_dim]
-#             hidden_stack = cls_embeddings.squeeze(1)
-
-#         all_hidden_states.append(hidden_stack)
-#         labels.append(ex["label"])
-
-#         # Sleep a tiny bit to allow UI to update
-#         time.sleep(0.01)
-
-#     # Convert lists to tensors
-#     all_hidden_states = torch.stack(all_hidden_states).to(device)
-#     labels = torch.tensor(labels).to(device)
-
-#     # Update to 100%
-#     progress_callback(1.0, f"Completed processing all {len(examples)} {dataset_type} examples",
-#                      f"Created tensor of shape {all_hidden_states.shape}")
-
-#     # Allow slicing if return_layer is specified
-#     if return_layer is not None:
-#         return all_hidden_states[:, return_layer, :], labels  # (N, D)
-#     else:
-#         return all_hidden_states, labels  # (N, L, D)
 
 
 class LinearProbe(torch.nn.Module):
@@ -1501,8 +1379,19 @@ if run_button:
         mark_complete(training_status)
 
         # 5. Plot and display results
-        with accuracy_tab:
+        with main_tabs[0]:
             # Selectivity plot (if using control tasks)
+            acc_df = pd.DataFrame({
+                'Layer': range(num_layers),
+                'Accuracy': results['accuracies'],
+                'Loss': results['test_losses']
+            })
+            if use_control_tasks:
+                acc_df['Control Accuracy'] = results['control_accuracies']
+                acc_df['Selectivity'] = results['selectivities']
+
+            st.dataframe(acc_df)
+
             if use_control_tasks and results['selectivities']:
                 fig_sel = plot_selectivity_by_layer(
                     results['selectivities'], results['accuracies'],
@@ -1534,445 +1423,436 @@ if run_button:
                     (Control tasks were not run, so selectivity and control accuracy are not displayed).
                     """)
 
-        with pca_tab:
-            # PCA grid
-            pca_plot.info("Generating PCA visualization...")
-            fig_pca = plot_pca_grid(
-                test_hidden_states, test_labels, results['probes'], model_name, dataset_source)
-            pca_plot.pyplot(fig_pca)
-            with st.expander("What does this chart show?", expanded=False):
-                st.markdown("""
-                This grid of plots visualizes the hidden state activations from each layer of the model after being reduced to two dimensions using **Principal Component Analysis (PCA)**.
-                PCA finds the two directions (principal components) that capture the most variance in the high-dimensional activation data.
+            # Restore PCA Tab Content
+            with pca_tab_container:
+                pca_plot.info("Generating PCA visualization...")
+                fig_pca = plot_pca_grid(
+                    test_hidden_states, test_labels, results['probes'], model_name, dataset_source)
+                pca_plot.pyplot(fig_pca)
+                with st.expander("What does this chart show?", expanded=False):
+                    st.markdown("""
+                    This grid of plots visualizes the hidden state activations from each layer of the model after being reduced to two dimensions using **Principal Component Analysis (PCA)**.
+                    PCA finds the two directions (principal components) that capture the most variance in the high-dimensional activation data.
 
-                - **Each small plot** corresponds to a different layer in the model.
-                - **Points:** Each point represents a single statement from your test set.
-                    - **Green points** are statements labeled as "True."
-                    - **Red points** are statements labeled as "False."
-                - **Separation:** If true and false statements form distinct clusters in this 2D view, it suggests that the activations at that layer, even when simplified to 2D, contain information that can distinguish them.
-                - **Misclassified Points (Blue Circles):** Points circled in blue are those that the linear probe for that layer misclassified. This shows where the probe's decision boundary in the original high-dimensional space doesn't perfectly align with the true labels.
-                - **Decision Boundary (Dashed Line):** The dashed black line (if present) is an *approximation* of the linear probe's decision boundary, projected into this 2D PCA space.
-                - **Variance Explained (Var=X% in title):** This percentage indicates how much of the original variance in the high-dimensional activations is captured by the two principal components shown. A higher percentage means the 2D plot is a more faithful representation of the data's spread.
+                    - **Each small plot** corresponds to a different layer in the model.
+                    - **Points:** Each point represents a single statement from your test set.
+                        - **Green points** are statements labeled as "True."
+                        - **Red points** are statements labeled as "False."
+                    - **Separation:** If true and false statements form distinct clusters in this 2D view, it suggests that the activations at that layer, even when simplified to 2D, contain information that can distinguish them.
+                    - **Misclassified Points (Blue Circles):** Points circled in blue are those that the linear probe for that layer misclassified. This shows where the probe's decision boundary in the original high-dimensional space doesn't perfectly align with the true labels.
+                    - **Decision Boundary (Dashed Line):** The dashed black line (if present) is an *approximation* of the linear probe's decision boundary, projected into this 2D PCA space.
+                    - **Variance Explained (Var=X% in title):** This percentage indicates how much of the original variance in the high-dimensional activations is captured by the two principal components shown. A higher percentage means the 2D plot is a more faithful representation of the data's spread.
 
-                Looking across layers, you can see if and where the representations of true and false statements become more separable in this simplified 2D view.
-                """)
+                    Looking across layers, you can see if and where the representations of true and false statements become more separable in this simplified 2D view.
+                    """)
 
-        with projection_tab:
-            # Truth projection grid
-            projection_plot.info("Generating truth projection histograms...")
-            fig_proj = plot_truth_projections(
-                test_hidden_states, test_labels, results['probes'])
-            projection_plot.pyplot(fig_proj)
-            with st.expander("What does this chart show?", expanded=False):
-                st.markdown("""
-                This grid of plots visualizes how well the hidden state activations for true and false statements separate when projected onto the **"truth direction"** learned by the linear probe for each layer.
+            # Restore Projection Tab Content
+            with projection_tab_container:
+                projection_plot.info(
+                    "Generating truth projection histograms...")
+                fig_proj = plot_truth_projections(
+                    test_hidden_states, test_labels, results['probes'])
+                projection_plot.pyplot(fig_proj)
+                with st.expander("What does this chart show?", expanded=False):
+                    st.markdown("""
+                    This grid of plots visualizes how well the hidden state activations for true and false statements separate when projected onto the **"truth direction"** learned by the linear probe for each layer.
 
-                - **Each small plot** corresponds to a different layer in the model.
-                - **"Truth Direction":** For each layer, the linear probe learns a weight vector. This vector defines a direction in the high-dimensional activation space that the probe associates with "truth."
-                - **Projection:** Activations from the test set are projected onto this learned truth direction, resulting in a single scalar value for each statement.
-                - **Histograms:**
-                    - **Green Histogram:** Distribution of projected values for statements that are actually **True**.
-                    - **Red Histogram:** Distribution of projected values for statements that are actually **False**.
-                - **Separation & Overlap:** Ideally, the green and red histograms should be well-separated with minimal overlap. The `Overlap` value in the title quantifies this mixing (lower is better).
-                - **Decision Boundary (Vertical Dashed Line):** Represents the probe's decision threshold (usually at x=0).
-                - **Accuracy (Acc=X.XX in title):** The probe's accuracy for that layer.
+                    - **Each small plot** corresponds to a different layer in the model.
+                    - **"Truth Direction":** For each layer, the linear probe learns a weight vector. This vector defines a direction in the high-dimensional activation space that the probe associates with "truth."
+                    - **Projection:** Activations from the test set are projected onto this learned truth direction, resulting in a single scalar value for each statement.
+                    - **Histograms:**
+                        - **Green Histogram:** Distribution of projected values for statements that are actually **True**.
+                        - **Red Histogram:** Distribution of projected values for statements that are actually **False**.
+                    - **Separation & Overlap:** Ideally, the green and red histograms should be well-separated with minimal overlap. The `Overlap` value in the title quantifies this mixing (lower is better).
+                    - **Decision Boundary (Vertical Dashed Line):** Represents the probe's decision threshold (usually at x=0).
+                    - **Accuracy (Acc=X.XX in title):** The probe's accuracy for that layer.
 
-                This helps visualize, layer by layer, how distinctly the probe's learned truth direction separates true and false statements.
-                """)
+                    This helps visualize, layer by layer, how distinctly the probe's learned truth direction separates true and false statements.
+                    """)
 
-        with data_tab:
-            # Display numeric results
-            data_display.subheader("Layer-wise Metrics")
-            acc_df = pd.DataFrame({
-                'Layer': range(num_layers),
-                'Accuracy': results['accuracies'],
-                'Loss': results['test_losses']
-            })
-            if use_control_tasks:
-                acc_df['Control Accuracy'] = results['control_accuracies']
-                acc_df['Selectivity'] = results['selectivities']
+            # Restore Data Tab Content
+            with data_tab_container:
+                layer_tabs = st.tabs(
+                    [f"Layer {i}" for i in range(num_layers)])
 
-            data_display.dataframe(acc_df)
+                # Display analysis for the selected layer tab
+                for i, layer_tab in enumerate(layer_tabs):
+                    with layer_tab:
+                        selected_layer = i
 
-            # Find best layer
-            best_layer = np.argmax(results['accuracies'])
-            best_acc = results['accuracies'][best_layer]
-            data_display.success(
-                f"Best layer: {best_layer} with accuracy {best_acc:.4f}"
-            )
+                        # --- Chart 1: Probe Neuron Weights ---
+                        st.subheader(
+                            f"Probe Neuron Weights for Layer {selected_layer}")
+                        if results and 'probes' in results and selected_layer < len(results['probes']):
+                            probe = results['probes'][selected_layer]
+                            probe_weights = probe.linear.weight[0].cpu(
+                            ).detach().numpy()
 
-            # Create one tab per layer
-            layer_tabs = data_display.tabs(
-                [f"Layer {i}" for i in range(num_layers)])
-
-            # Display analysis for the selected layer tab
-            for i, layer_tab in enumerate(layer_tabs):
-                with layer_tab:
-                    selected_layer = i
-
-                    # --- Chart 1: Probe Neuron Weights ---
-                    st.subheader(
-                        f"Probe Neuron Weights for Layer {selected_layer}")
-                    if results and 'probes' in results and selected_layer < len(results['probes']):
-                        probe = results['probes'][selected_layer]
-                        probe_weights = probe.linear.weight[0].cpu(
-                        ).detach().numpy()
-
-                        fig_probe_weights, ax_probe_weights = plt.subplots(
-                            figsize=(12, 4))
-                        ax_probe_weights.bar(
-                            range(len(probe_weights)), probe_weights)
-                        ax_probe_weights.set_title(
-                            f"Probe Neuron Weights - Layer {selected_layer}")
-                        ax_probe_weights.set_xlabel(
-                            "Neuron Index in Hidden Dimension")
-                        ax_probe_weights.set_ylabel("Weight Value")
-                        ax_probe_weights.grid(
-                            True, axis='y', linestyle='--', alpha=0.7)
-                        plt.tight_layout()
-                        st.pyplot(fig_probe_weights)
-
-                        with st.expander("What does this chart show?", expanded=False):
-                            st.markdown("""
-                            This chart displays the **learned weight** assigned by the simple linear probe to each neuron (or element in the hidden dimension) for this specific layer.
-
-                            - **Positive Weight (bar goes up):** Indicates that if this neuron has a high activation, the probe is more likely to classify the input statement as **TRUE**.
-                            - **Negative Weight (bar goes down):** Indicates that if this neuron has a high activation, the probe is more likely to classify the input statement as **FALSE** (conversely, low activation might suggest TRUE to the probe).
-                            - **Weight close to Zero:** The probe does not consider this neuron particularly important for its true/false classification at this layer.
-
-                            Essentially, these weights show which neurons the probe has identified as most influential for distinguishing true from false statements based on the activations at this layer.
-                            """)
-                    else:
-                        st.info("Probe weights are not available for this layer.")
-
-                    # --- Chart 2: Difference in Mean Activations (True - False) ---
-                    st.subheader(
-                        f"Mean Activation Difference (True - False) for Layer {selected_layer}")
-                    if test_hidden_states.nelement() > 0 and test_labels.nelement() > 0:
-                        layer_feats = test_hidden_states[:, selected_layer, :]
-
-                        true_indices = (test_labels == 1).nonzero(
-                            as_tuple=True)[0]
-                        false_indices = (test_labels == 0).nonzero(
-                            as_tuple=True)[0]
-
-                        if len(true_indices) > 0 and len(false_indices) > 0:
-                            mean_activations_true = layer_feats[true_indices].mean(
-                                dim=0).cpu().numpy()
-                            mean_activations_false = layer_feats[false_indices].mean(
-                                dim=0).cpu().numpy()
-                            diff_activations = mean_activations_true - mean_activations_false
-
-                            fig_diff_activations, ax_diff_activations = plt.subplots(
+                            fig_probe_weights, ax_probe_weights = plt.subplots(
                                 figsize=(12, 4))
-                            ax_diff_activations.bar(
-                                range(len(diff_activations)), diff_activations)
-                            ax_diff_activations.set_title(
-                                f"Mean Activation Difference (True - False) - Layer {selected_layer}")
-                            ax_diff_activations.set_xlabel(
+                            ax_probe_weights.bar(
+                                range(len(probe_weights)), probe_weights)
+                            ax_probe_weights.set_title(
+                                f"Probe Neuron Weights - Layer {selected_layer}")
+                            ax_probe_weights.set_xlabel(
                                 "Neuron Index in Hidden Dimension")
-                            ax_diff_activations.set_ylabel(
-                                "Mean Activation Difference")
-                            ax_diff_activations.grid(
+                            ax_probe_weights.set_ylabel("Weight Value")
+                            ax_probe_weights.grid(
                                 True, axis='y', linestyle='--', alpha=0.7)
                             plt.tight_layout()
-                            st.pyplot(fig_diff_activations)
+                            st.pyplot(fig_probe_weights)
 
                             with st.expander("What does this chart show?", expanded=False):
                                 st.markdown("""
-                                This chart displays the difference between the **mean (average) activation** of each neuron when the model processes **TRUE** statements versus when it processes **FALSE** statements from the test set.
+                                This chart displays the **learned weight** assigned by the simple linear probe to each neuron (or element in the hidden dimension) for this specific layer.
 
-                                - **Positive Bar (bar goes up):** This neuron is, on average, **more active** when the input statement is TRUE compared to when it's false.
-                                - **Negative Bar (bar goes down):** This neuron is, on average, **less active** (or more negatively active) when the input statement is TRUE compared to when it's false. This means it tends to be more active for FALSE statements.
-                                - **Bar close to Zero:** This neuron's average activation level is similar for both true and false statements in the test set; its raw activity doesn't strongly distinguish between them on average.
+                                - **Positive Weight (bar goes up):** Indicates that if this neuron has a high activation, the probe is more likely to classify the input statement as **TRUE**.
+                                - **Negative Weight (bar goes down):** Indicates that if this neuron has a high activation, the probe is more likely to classify the input statement as **FALSE** (conversely, low activation might suggest TRUE to the probe).
+                                - **Weight close to Zero:** The probe does not consider this neuron particularly important for its true/false classification at this layer.
 
-                                This visualization helps identify neurons whose raw activation levels (independent of any probe) show a systematic difference based on the ground truth label of the statements.
+                                Essentially, these weights show which neurons the probe has identified as most influential for distinguishing true from false statements based on the activations at this layer.
                                 """)
-                        elif len(true_indices) == 0:
-                            st.info(
-                                f"No true statements in the test set for layer {selected_layer} to calculate activation differences.")
-                        elif len(false_indices) == 0:
-                            st.info(
-                                f"No false statements in the test set for layer {selected_layer} to calculate activation differences.")
                         else:
                             st.info(
-                                f"Not enough data to calculate activation differences for layer {selected_layer}.")
-                    else:
-                        st.info(
-                            "Test hidden states or labels are empty, cannot plot activation differences.")
+                                "Probe weights are not available for this layer.")
 
-                    # Show details for selected layer
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.subheader(f"Layer {selected_layer} Details")
-                        probe = results['probes'][selected_layer]
+                        # --- Chart 2: Difference in Mean Activations (True - False) ---
+                        st.subheader(
+                            f"Mean Activation Difference (True - False) for Layer {selected_layer}")
+                        if test_hidden_states.nelement() > 0 and test_labels.nelement() > 0:
+                            layer_feats = test_hidden_states[:,
+                                                             selected_layer, :]
 
-                        # Extract test features for this layer
-                        test_feats = test_hidden_states[:, selected_layer, :]
+                            true_indices = (test_labels == 1).nonzero(
+                                as_tuple=True)[0]
+                            false_indices = (test_labels == 0).nonzero(
+                                as_tuple=True)[0]
 
-                        with torch.no_grad():
-                            # Get predictions
-                            test_outputs = probe(test_feats)
-                            test_preds = (test_outputs > 0.5).long()
+                            if len(true_indices) > 0 and len(false_indices) > 0:
+                                mean_activations_true = layer_feats[true_indices].mean(
+                                    dim=0).cpu().numpy()
+                                mean_activations_false = layer_feats[false_indices].mean(
+                                    dim=0).cpu().numpy()
+                                diff_activations = mean_activations_true - mean_activations_false
 
-                            # Make sure tensors are on the same device
-                            test_preds_device = test_preds.to(device)
-                            test_labels_device = test_labels.to(device)
+                                fig_diff_activations, ax_diff_activations = plt.subplots(
+                                    figsize=(12, 4))
+                                ax_diff_activations.bar(
+                                    range(len(diff_activations)), diff_activations)
+                                ax_diff_activations.set_title(
+                                    f"Mean Activation Difference (True - False) - Layer {selected_layer}")
+                                ax_diff_activations.set_xlabel(
+                                    "Neuron Index in Hidden Dimension")
+                                ax_diff_activations.set_ylabel(
+                                    "Mean Activation Difference")
+                                ax_diff_activations.grid(
+                                    True, axis='y', linestyle='--', alpha=0.7)
+                                plt.tight_layout()
+                                st.pyplot(fig_diff_activations)
 
-                            # Confusion matrix components
-                            TP = ((test_preds_device == 1) & (
-                                test_labels_device == 1)).sum().item()
-                            FP = ((test_preds_device == 1) & (
-                                test_labels_device == 0)).sum().item()
-                            TN = ((test_preds_device == 0) & (
-                                test_labels_device == 0)).sum().item()
-                            FN = ((test_preds_device == 0) & (
-                                test_labels_device == 1)).sum().item()
+                                with st.expander("What does this chart show?", expanded=False):
+                                    st.markdown("""
+                                    This chart displays the difference between the **mean (average) activation** of each neuron when the model processes **TRUE** statements versus when it processes **FALSE** statements from the test set.
 
-                            # Calculate metrics
-                            accuracy = (TP + TN) / (TP + TN + FP +
-                                                    FN) if (TP + TN + FP + FN) > 0 else 0
-                            precision = TP / (TP + FP) if (TP + FP) > 0 else 0
-                            recall = TP / (TP + FN) if (TP + FN) > 0 else 0
-                            f1 = 2 * precision * recall / \
-                                (precision + recall) if (precision + recall) > 0 else 0
+                                    - **Positive Bar (bar goes up):** This neuron is, on average, **more active** when the input statement is TRUE compared to when it's false.
+                                    - **Negative Bar (bar goes down):** This neuron is, on average, **less active** (or more negatively active) when the input statement is TRUE compared to when it's false. This means it tends to be more active for FALSE statements.
+                                    - **Bar close to Zero:** This neuron's average activation level is similar for both true and false statements in the test set; its raw activity doesn't strongly distinguish between them on average.
 
-                        # Display metrics
-                        metrics_df = pd.DataFrame({
-                            'Metric': ['Accuracy', 'Precision', 'Recall', 'F1 Score', 'True Positives',
-                                       'False Positives', 'True Negatives', 'False Negatives'],
-                            'Value': [f"{accuracy:.4f}", f"{precision:.4f}", f"{recall:.4f}", f"{f1:.4f}",
-                                      str(TP), str(FP), str(TN), str(FN)]
-                        })
-                        st.table(metrics_df)
+                                    This visualization helps identify neurons whose raw activation levels (independent of any probe) show a systematic difference based on the ground truth label of the statements.
+                                    """)
+                            elif len(true_indices) == 0:
+                                st.info(
+                                    f"No true statements in the test set for layer {selected_layer} to calculate activation differences.")
+                            elif len(false_indices) == 0:
+                                st.info(
+                                    f"No false statements in the test set for layer {selected_layer} to calculate activation differences.")
+                            else:
+                                st.info(
+                                    f"Not enough data to calculate activation differences for layer {selected_layer}.")
+                        else:
+                            st.info(
+                                "Test hidden states or labels are empty, cannot plot activation differences.")
 
-                        # Add truth direction projection visualization
-                        st.subheader("Truth Direction Projection")
-                        with torch.no_grad():
-                            projection = torch.matmul(
-                                test_feats, probe.linear.weight[0])
+                        # Show details for selected layer in columns
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.subheader(f"Layer {selected_layer} Details")
+                            probe = results['probes'][selected_layer]
 
-                            # Get projection values for true and false examples
-                            true_proj = projection[test_labels == 1].cpu(
-                            ).numpy()
-                            false_proj = projection[test_labels == 0].cpu(
-                            ).numpy()
+                            # Extract test features for this layer
+                            test_feats = test_hidden_states[:,
+                                                            selected_layer, :]
 
-                            # Create histogram
-                            fig_proj_individual, ax_proj = plt.subplots(
-                                figsize=(8, 3))
-                            bins = np.linspace(
-                                min(projection.min().item(), -3),
-                                max(projection.max().item(), 3),
-                                30
-                            )
+                            with torch.no_grad():
+                                # Get predictions
+                                test_outputs = probe(test_feats)
+                                test_preds = (test_outputs > 0.5).long()
 
-                            # Plot histograms
-                            ax_proj.hist(true_proj, bins=bins, alpha=0.7,
-                                         label="True", color="#4CAF50")
-                            ax_proj.hist(false_proj, bins=bins, alpha=0.7,
-                                         label="False", color="#F44336")
+                                # Make sure tensors are on the same device
+                                test_preds_device = test_preds.to(device)
+                                test_labels_device = test_labels.to(device)
 
-                            # Add a vertical line at the decision boundary (0.0)
-                            ax_proj.axvline(x=0, color='black',
-                                            linestyle='--', alpha=0.5)
-                            ax_proj.set_xlabel(
-                                "Projection onto Truth Direction")
-                            ax_proj.set_ylabel("Count")
-                            ax_proj.legend()
+                                # Confusion matrix components
+                                TP = ((test_preds_device == 1) & (
+                                    test_labels_device == 1)).sum().item()
+                                FP = ((test_preds_device == 1) & (
+                                    test_labels_device == 0)).sum().item()
+                                TN = ((test_preds_device == 0) & (
+                                    test_labels_device == 0)).sum().item()
+                                FN = ((test_preds_device == 0) & (
+                                    test_labels_device == 1)).sum().item()
 
-                            st.pyplot(fig_proj_individual)
+                                # Calculate metrics
+                                accuracy = (TP + TN) / (TP + TN + FP +
+                                                        FN) if (TP + TN + FP + FN) > 0 else 0
+                                precision = TP / \
+                                    (TP + FP) if (TP + FP) > 0 else 0
+                                recall = TP / (TP + FN) if (TP + FN) > 0 else 0
+                                f1 = 2 * precision * recall / \
+                                    (precision + recall) if (precision +
+                                                             recall) > 0 else 0
+
+                            # Display metrics
+                            metrics_df = pd.DataFrame({
+                                'Metric': ['Accuracy', 'Precision', 'Recall', 'F1 Score', 'True Positives',
+                                           'False Positives', 'True Negatives', 'False Negatives'],
+                                'Value': [f"{accuracy:.4f}", f"{precision:.4f}", f"{recall:.4f}", f"{f1:.4f}",
+                                          str(TP), str(FP), str(TN), str(FN)]
+                            })
+                            st.table(metrics_df)
+
+                            # Add truth direction projection visualization
+                            st.subheader("Truth Direction Projection")
+                            with torch.no_grad():
+                                projection = torch.matmul(
+                                    test_feats, probe.linear.weight[0])
+
+                                # Get projection values for true and false examples
+                                true_proj = projection[test_labels == 1].cpu(
+                                ).numpy()
+                                false_proj = projection[test_labels == 0].cpu(
+                                ).numpy()
+
+                                # Create histogram
+                                fig_proj_individual, ax_proj = plt.subplots(
+                                    figsize=(8, 3))
+                                bins = np.linspace(
+                                    min(projection.min().item(), -3),
+                                    max(projection.max().item(), 3),
+                                    30
+                                )
+
+                                # Plot histograms
+                                ax_proj.hist(true_proj, bins=bins, alpha=0.7,
+                                             label="True", color="#4CAF50")
+                                ax_proj.hist(false_proj, bins=bins, alpha=0.7,
+                                             label="False", color="#F44336")
+
+                                # Add a vertical line at the decision boundary (0.0)
+                                ax_proj.axvline(x=0, color='black',
+                                                linestyle='--', alpha=0.5)
+                                ax_proj.set_xlabel(
+                                    "Projection onto Truth Direction")
+                                ax_proj.set_ylabel("Count")
+                                ax_proj.legend()
+
+                                st.pyplot(fig_proj_individual)
+                                with st.expander("What does this chart show?", expanded=False):
+                                    st.markdown("""
+                                    This chart visualizes how well the hidden state activations for true and false statements from the test set separate when projected onto the **"truth direction"** learned by the linear probe specifically for **this layer**.
+
+                                    - **"Truth Direction":** The linear probe for this layer learned a weight vector, defining a direction in this layer's activation space that the probe associates with "truth."
+                                    - **Projection:** Activations from the test set are projected onto this learned truth direction, giving a single scalar value per statement.
+                                    - **Histograms:**
+                                        - **Green Histogram:** Distribution of projected values for **True** statements.
+                                        - **Red Histogram:** Distribution of projected values for **False** statements.
+                                    - **Separation:** Ideally, the green and red histograms should be well-separated.
+                                    - **Decision Boundary (Vertical Dashed Line):** Represents this probe's decision threshold (usually at x=0).
+
+                                    This chart helps assess how clearly this specific layer's probe distinguishes true from false statements along its learned truth axis.
+                                    """)
+
+                        with col2:
+                            st.subheader("Confusion Matrix")
+                            # Create a small confusion matrix plot
+                            fig, ax = plt.subplots(figsize=(4, 3))
+                            cm = np.array([[TN, FP], [FN, TP]])
+                            im = ax.imshow(
+                                cm, interpolation='nearest', cmap=plt.cm.Blues)
+                            ax.set_title(
+                                f"Layer {selected_layer} Confusion Matrix")
+
+                            # Show all ticks and label them
+                            ax.set_xticks(np.arange(2))
+                            ax.set_yticks(np.arange(2))
+                            ax.set_xticklabels(
+                                ['Predicted False', 'Predicted True'])
+                            ax.set_yticklabels(['Actual False', 'Actual True'])
+
+                            # Rotate tick labels and set alignment
+                            plt.setp(ax.get_xticklabels(), rotation=45,
+                                     ha="right", rotation_mode="anchor")
+
+                            # Loop over data dimensions and create text annotations
+                            for i in range(2):
+                                for j in range(2):
+                                    ax.text(j, i, cm[i, j], ha="center", va="center",
+                                            color="w" if cm[i, j] > cm.max()/2 else "black")
+
+                            plt.tight_layout()
+                            st.pyplot(fig)
                             with st.expander("What does this chart show?", expanded=False):
                                 st.markdown("""
-                                This chart visualizes how well the hidden state activations for true and false statements from the test set separate when projected onto the **"truth direction"** learned by the linear probe specifically for **this layer**.
+                                This table summarizes the performance of the truth probe for this specific layer on the test set.
 
-                                - **"Truth Direction":** The linear probe for this layer learned a weight vector, defining a direction in this layer's activation space that the probe associates with "truth."
-                                - **Projection:** Activations from the test set are projected onto this learned truth direction, giving a single scalar value per statement.
-                                - **Histograms:**
-                                    - **Green Histogram:** Distribution of projected values for **True** statements.
-                                    - **Red Histogram:** Distribution of projected values for **False** statements.
-                                - **Separation:** Ideally, the green and red histograms should be well-separated.
-                                - **Decision Boundary (Vertical Dashed Line):** Represents this probe's decision threshold (usually at x=0).
+                                - **Rows** represent the **Actual** labels (False or True).
+                                - **Columns** represent the **Predicted** labels (False or True) made by the probe.
 
-                                This chart helps assess how clearly this specific layer's probe distinguishes true from false statements along its learned truth axis.
+                                The cells show the counts of test examples falling into each category:
+
+                                - **Top-Left (Actual False, Predicted False):** True Negatives (TN) - Correctly identified as false.
+                                - **Top-Right (Actual False, Predicted True):** False Positives (FP) - Incorrectly identified as true (Type I Error).
+                                - **Bottom-Left (Actual True, Predicted False):** False Negatives (FN) - Incorrectly identified as false (Type II Error).
+                                - **Bottom-Right (Actual True, Predicted True):** True Positives (TP) - Correctly identified as true.
+
+                                Ideally, for a good probe, the numbers on the main diagonal (TN and TP) should be high, while the off-diagonal numbers (FP and FN) should be low.
                                 """)
 
-                    with col2:
-                        st.subheader("Confusion Matrix")
-                        # Create a small confusion matrix plot
-                        fig, ax = plt.subplots(figsize=(4, 3))
-                        cm = np.array([[TN, FP], [FN, TP]])
-                        im = ax.imshow(
-                            cm, interpolation='nearest', cmap=plt.cm.Blues)
-                        ax.set_title(
-                            f"Layer {selected_layer} Confusion Matrix")
+                            # Add examples
+                            st.subheader("Example Predictions")
 
-                        # Show all ticks and label them
-                        ax.set_xticks(np.arange(2))
-                        ax.set_yticks(np.arange(2))
-                        ax.set_xticklabels(
-                            ['Predicted False', 'Predicted True'])
-                        ax.set_yticklabels(['Actual False', 'Actual True'])
+                            # Get some examples from the test set
+                            with torch.no_grad():
+                                # Get confidence scores and move everything to CPU
+                                confidences = test_outputs.cpu().numpy()
 
-                        # Rotate tick labels and set alignment
-                        plt.setp(ax.get_xticklabels(), rotation=45,
-                                 ha="right", rotation_mode="anchor")
+                                # Move tensors to CPU for consistent device
+                                test_preds_cpu = test_preds.cpu()
+                                test_labels_cpu = test_labels.cpu()
 
-                        # Loop over data dimensions and create text annotations
-                        for i in range(2):
-                            for j in range(2):
-                                ax.text(j, i, cm[i, j], ha="center", va="center",
-                                        color="w" if cm[i, j] > cm.max()/2 else "black")
+                                # Get the most confident correct and incorrect predictions
+                                correct_mask = test_preds_cpu == test_labels_cpu
+                                incorrect_mask = ~correct_mask
 
-                        plt.tight_layout()
-                        st.pyplot(fig)
-                        with st.expander("What does this chart show?", expanded=False):
-                            st.markdown("""
-                            This table summarizes the performance of the truth probe for this specific layer on the test set.
+                                # Make sure all tensors are on the same device
+                                test_labels_cpu = test_labels.cpu()
+                                correct_mask_cpu = correct_mask.cpu()
+                                incorrect_mask_cpu = incorrect_mask.cpu()
 
-                            - **Rows** represent the **Actual** labels (False or True).
-                            - **Columns** represent the **Predicted** labels (False or True) made by the probe.
+                                # Separate by true/false and correct/incorrect
+                                true_correct = (test_labels_cpu ==
+                                                1) & correct_mask_cpu
+                                false_correct = (
+                                    test_labels_cpu == 0) & correct_mask_cpu
+                                true_incorrect = (test_labels_cpu ==
+                                                  1) & incorrect_mask_cpu
+                                false_incorrect = (test_labels_cpu ==
+                                                   0) & incorrect_mask_cpu
 
-                            The cells show the counts of test examples falling into each category:
+                                # Get the confidence scores for each category
+                                true_correct_conf = confidences[true_correct.cpu(
+                                )]
+                                false_correct_conf = confidences[false_correct.cpu(
+                                )]
+                                true_incorrect_conf = confidences[true_incorrect.cpu(
+                                )]
+                                false_incorrect_conf = confidences[false_incorrect.cpu(
+                                )]
 
-                            - **Top-Left (Actual False, Predicted False):** True Negatives (TN) - Correctly identified as false.
-                            - **Top-Right (Actual False, Predicted True):** False Positives (FP) - Incorrectly identified as true (Type I Error).
-                            - **Bottom-Left (Actual True, Predicted False):** False Negatives (FN) - Incorrectly identified as false (Type II Error).
-                            - **Bottom-Right (Actual True, Predicted True):** True Positives (TP) - Correctly identified as true.
-
-                            Ideally, for a good probe, the numbers on the main diagonal (TN and TP) should be high, while the off-diagonal numbers (FP and FN) should be low.
-                            """)
-
-                        # Add examples
-                        st.subheader("Example Predictions")
-
-                        # Get some examples from the test set
-                        with torch.no_grad():
-                            # Get confidence scores and move everything to CPU
-                            confidences = test_outputs.cpu().numpy()
-
-                            # Move tensors to CPU for consistent device
-                            test_preds_cpu = test_preds.cpu()
-                            test_labels_cpu = test_labels.cpu()
-
-                            # Get the most confident correct and incorrect predictions
-                            correct_mask = test_preds_cpu == test_labels_cpu
-                            incorrect_mask = ~correct_mask
-
-                            # Make sure all tensors are on the same device
-                            test_labels_cpu = test_labels.cpu()
-                            correct_mask_cpu = correct_mask.cpu()
-                            incorrect_mask_cpu = incorrect_mask.cpu()
-
-                            # Separate by true/false and correct/incorrect
-                            true_correct = (test_labels_cpu ==
-                                            1) & correct_mask_cpu
-                            false_correct = (
-                                test_labels_cpu == 0) & correct_mask_cpu
-                            true_incorrect = (test_labels_cpu ==
-                                              1) & incorrect_mask_cpu
-                            false_incorrect = (test_labels_cpu ==
-                                               0) & incorrect_mask_cpu
-
-                            # Get the confidence scores for each category
-                            true_correct_conf = confidences[true_correct.cpu()]
-                            false_correct_conf = confidences[false_correct.cpu(
-                            )]
-                            true_incorrect_conf = confidences[true_incorrect.cpu(
-                            )]
-                            false_incorrect_conf = confidences[false_incorrect.cpu(
-                            )]
-
-                            # Get indices for sorting
-                            if len(true_correct_conf) > 0:
-                                true_correct_idx = torch.nonzero(
-                                    true_correct.cpu()).cpu().numpy().flatten()
-                                true_correct_sorted = true_correct_idx[np.argsort(
-                                    -true_correct_conf)]
-                            else:
-                                true_correct_sorted = []
-
-                            if len(false_correct_conf) > 0:
-                                false_correct_idx = torch.nonzero(
-                                    false_correct.cpu()).cpu().numpy().flatten()
-                                false_correct_sorted = false_correct_idx[np.argsort(
-                                    false_correct_conf)]
-                            else:
-                                false_correct_sorted = []
-
-                            if len(true_incorrect_conf) > 0:
-                                true_incorrect_idx = torch.nonzero(
-                                    true_incorrect.cpu()).cpu().numpy().flatten()
-                                true_incorrect_sorted = true_incorrect_idx[np.argsort(
-                                    true_incorrect_conf)]
-                            else:
-                                true_incorrect_sorted = []
-
-                            if len(false_incorrect_conf) > 0:
-                                false_incorrect_idx = torch.nonzero(
-                                    false_incorrect.cpu()).cpu().numpy().flatten()
-                                false_incorrect_sorted = false_incorrect_idx[np.argsort(
-                                    -false_incorrect_conf)]
-                            else:
-                                false_incorrect_sorted = []
-
-                        # Display examples
-                        with st.expander("Most Confident Correct Predictions"):
-                            # Show the most confident true positive and true negative
-                            cols = st.columns(2)
-                            with cols[0]:
-                                st.markdown(
-                                    "**Most confident TRUE prediction (correctly predicted as TRUE)**")
-                                if len(true_correct_sorted) > 0:
-                                    idx = true_correct_sorted[0]
-                                    st.markdown(
-                                        f"Example: `{test_examples[idx]['text']}`")
-                                    st.markdown(
-                                        f"Confidence: {confidences[idx]:.4f}")
+                                # Get indices for sorting
+                                if len(true_correct_conf) > 0:
+                                    true_correct_idx = torch.nonzero(
+                                        true_correct.cpu()).cpu().numpy().flatten()
+                                    true_correct_sorted = true_correct_idx[np.argsort(
+                                        -true_correct_conf)]
                                 else:
-                                    st.markdown("No examples found")
+                                    true_correct_sorted = []
 
-                            with cols[1]:
-                                st.markdown(
-                                    "**Most confident FALSE prediction (correctly predicted as FALSE)**")
-                                if len(false_correct_sorted) > 0:
-                                    idx = false_correct_sorted[0]
-                                    st.markdown(
-                                        f"Example: `{test_examples[idx]['text']}`")
-                                    st.markdown(
-                                        f"Confidence: {1-confidences[idx]:.4f}")
+                                if len(false_correct_conf) > 0:
+                                    false_correct_idx = torch.nonzero(
+                                        false_correct.cpu()).cpu().numpy().flatten()
+                                    false_correct_sorted = false_correct_idx[np.argsort(
+                                        false_correct_conf)]
                                 else:
-                                    st.markdown("No examples found")
+                                    false_correct_sorted = []
 
-                        with st.expander("Most Confident Incorrect Predictions"):
-                            # Show the most confident false positive and false negative
-                            cols = st.columns(2)
-                            with cols[0]:
-                                st.markdown(
-                                    "**Most confident FALSE prediction (incorrectly predicted as TRUE)**")
-                                if len(false_incorrect_sorted) > 0:
-                                    idx = false_incorrect_sorted[0]
-                                    st.markdown(
-                                        f"Example: `{test_examples[idx]['text']}`")
-                                    st.markdown(
-                                        f"Confidence: {confidences[idx]:.4f}")
+                                if len(true_incorrect_conf) > 0:
+                                    true_incorrect_idx = torch.nonzero(
+                                        true_incorrect.cpu()).cpu().numpy().flatten()
+                                    true_incorrect_sorted = true_incorrect_idx[np.argsort(
+                                        true_incorrect_conf)]
                                 else:
-                                    st.markdown("No examples found")
+                                    true_incorrect_sorted = []
 
-                            with cols[1]:
-                                st.markdown(
-                                    "**Most confident TRUE prediction (incorrectly predicted as FALSE)**")
-                                if len(true_incorrect_sorted) > 0:
-                                    idx = true_incorrect_sorted[0]
-                                    st.markdown(
-                                        f"Example: `{test_examples[idx]['text']}`")
-                                    st.markdown(
-                                        f"Confidence: {1-confidences[idx]:.4f}")
+                                if len(false_incorrect_conf) > 0:
+                                    false_incorrect_idx = torch.nonzero(
+                                        false_incorrect.cpu()).cpu().numpy().flatten()
+                                    false_incorrect_sorted = false_incorrect_idx[np.argsort(
+                                        -false_incorrect_conf)]
                                 else:
-                                    st.markdown("No examples found")
+                                    false_incorrect_sorted = []
+
+                            # Display examples
+                            with st.expander("Most Confident Correct Predictions"):
+                                # Show the most confident true positive and true negative
+                                cols = st.columns(2)
+                                with cols[0]:
+                                    st.markdown(
+                                        "**Most confident TRUE prediction (correctly predicted as TRUE)**")
+                                    if len(true_correct_sorted) > 0:
+                                        idx = true_correct_sorted[0]
+                                        st.markdown(
+                                            f"Example: `{test_examples[idx]['text']}`")
+                                        st.markdown(
+                                            f"Confidence: {confidences[idx]:.4f}")
+                                    else:
+                                        st.markdown("No examples found")
+
+                                with cols[1]:
+                                    st.markdown(
+                                        "**Most confident FALSE prediction (correctly predicted as FALSE)**")
+                                    if len(false_correct_sorted) > 0:
+                                        idx = false_correct_sorted[0]
+                                        st.markdown(
+                                            f"Example: `{test_examples[idx]['text']}`")
+                                        st.markdown(
+                                            f"Confidence: {1-confidences[idx]:.4f}")
+                                    else:
+                                        st.markdown("No examples found")
+
+                            with st.expander("Most Confident Incorrect Predictions"):
+                                # Show the most confident false positive and false negative
+                                cols = st.columns(2)
+                                with cols[0]:
+                                    st.markdown(
+                                        "**Most confident FALSE prediction (incorrectly predicted as TRUE)**")
+                                    if len(false_incorrect_sorted) > 0:
+                                        idx = false_incorrect_sorted[0]
+                                        st.markdown(
+                                            f"Example: `{test_examples[idx]['text']}`")
+                                        st.markdown(
+                                            f"Confidence: {confidences[idx]:.4f}")
+                                    else:
+                                        st.markdown("No examples found")
+
+                                with cols[1]:
+                                    st.markdown(
+                                        "**Most confident TRUE prediction (incorrectly predicted as FALSE)**")
+                                    if len(true_incorrect_sorted) > 0:
+                                        idx = true_incorrect_sorted[0]
+                                        st.markdown(
+                                            f"Example: `{test_examples[idx]['text']}`")
+                                        st.markdown(
+                                            f"Confidence: {1-confidences[idx]:.4f}")
+                                    else:
+                                        st.markdown("No examples found")
+
+        with main_tabs[1]:
+            st.info("Analysis for Sparse Autoencoders will be added here.")
+
         # Add completion message
         st.success(
-            f"Analysis complete! Best layer: {best_layer} with accuracy {best_acc:.4f}")
+            f"Analysis complete! Best layer: {np.argmax(results['accuracies'])} with accuracy {max(results['accuracies']):.4f}")
 
         # Save parameters
         parameters = {
