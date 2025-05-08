@@ -1558,6 +1558,86 @@ if run_button:
                 with layer_tab:
                     selected_layer = i
 
+                    # --- Chart 1: Probe Neuron Weights ---
+                    st.subheader(
+                        f"Probe Neuron Weights for Layer {selected_layer}")
+                    if results and 'probes' in results and selected_layer < len(results['probes']):
+                        probe = results['probes'][selected_layer]
+                        probe_weights = probe.linear.weight[0].cpu(
+                        ).detach().numpy()
+
+                        fig_probe_weights, ax_probe_weights = plt.subplots(
+                            figsize=(12, 4))
+                        ax_probe_weights.bar(
+                            range(len(probe_weights)), probe_weights)
+                        ax_probe_weights.set_title(
+                            f"Probe Neuron Weights - Layer {selected_layer}")
+                        ax_probe_weights.set_xlabel(
+                            "Neuron Index in Hidden Dimension")
+                        ax_probe_weights.set_ylabel("Weight Value")
+                        ax_probe_weights.grid(
+                            True, axis='y', linestyle='--', alpha=0.7)
+                        plt.tight_layout()
+                        st.pyplot(fig_probe_weights)
+
+                        with st.expander("What does this chart show?", expanded=False):
+                            st.markdown("""
+                            This chart displays the **learned weight** assigned by the simple linear probe to each neuron (or element in the hidden dimension) for this specific layer.
+
+                            - **Positive Weight (bar goes up):** Indicates that if this neuron has a high activation, the probe is more likely to classify the input statement as **TRUE**.
+                            - **Negative Weight (bar goes down):** Indicates that if this neuron has a high activation, the probe is more likely to classify the input statement as **FALSE** (conversely, low activation might suggest TRUE to the probe).
+                            - **Weight close to Zero:** The probe does not consider this neuron particularly important for its true/false classification at this layer.
+
+                            Essentially, these weights show which neurons the probe has identified as most influential for distinguishing true from false statements based on the activations at this layer.
+                            """)
+                    else:
+                        st.info("Probe weights are not available for this layer.")
+
+                    # --- Chart 2: Difference in Mean Activations (True - False) ---
+                    st.subheader(
+                        f"Mean Activation Difference (True - False) for Layer {selected_layer}")
+                    if test_hidden_states.nelement() > 0 and test_labels.nelement() > 0:
+                        layer_feats = test_hidden_states[:, selected_layer, :]
+
+                        true_indices = (test_labels == 1).nonzero(
+                            as_tuple=True)[0]
+                        false_indices = (test_labels == 0).nonzero(
+                            as_tuple=True)[0]
+
+                        if len(true_indices) > 0 and len(false_indices) > 0:
+                            mean_activations_true = layer_feats[true_indices].mean(
+                                dim=0).cpu().numpy()
+                            mean_activations_false = layer_feats[false_indices].mean(
+                                dim=0).cpu().numpy()
+                            diff_activations = mean_activations_true - mean_activations_false
+
+                            fig_diff_activations, ax_diff_activations = plt.subplots(
+                                figsize=(12, 4))
+                            ax_diff_activations.bar(
+                                range(len(diff_activations)), diff_activations)
+                            ax_diff_activations.set_title(
+                                f"Mean Activation Difference (True - False) - Layer {selected_layer}")
+                            ax_diff_activations.set_xlabel(
+                                "Neuron Index in Hidden Dimension")
+                            ax_diff_activations.set_ylabel(
+                                "Mean Activation Difference")
+                            ax_diff_activations.grid(
+                                True, axis='y', linestyle='--', alpha=0.7)
+                            plt.tight_layout()
+                            st.pyplot(fig_diff_activations)
+                        elif len(true_indices) == 0:
+                            st.info(
+                                f"No true statements in the test set for layer {selected_layer} to calculate activation differences.")
+                        elif len(false_indices) == 0:
+                            st.info(
+                                f"No false statements in the test set for layer {selected_layer} to calculate activation differences.")
+                        else:
+                            st.info(
+                                f"Not enough data to calculate activation differences for layer {selected_layer}.")
+                    else:
+                        st.info(
+                            "Test hidden states or labels are empty, cannot plot activation differences.")
+
                     # Show details for selected layer
                     col1, col2 = st.columns(2)
                     with col1:
