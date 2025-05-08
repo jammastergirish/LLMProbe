@@ -85,6 +85,14 @@ if os.path.exists(SAVED_DATA_DIR):
                         st.caption("📈 ACCURACY PLOT")
                         st.image(accuracy_plot_path, use_container_width=True)
 
+                    # Alignment Strength plot
+                    alignment_strength_plot_path = os.path.join(
+                        run_folder, "alignment_strength_plot.png")
+                    if os.path.exists(alignment_strength_plot_path):
+                        st.caption("🔗 ALIGNMENT STRENGTH BY LAYER")
+                        st.image(alignment_strength_plot_path,
+                                 use_container_width=True)
+
                     # PCA plot
                     pca_plot_path = os.path.join(run_folder, "pca_plot.png")
                     if os.path.exists(pca_plot_path):

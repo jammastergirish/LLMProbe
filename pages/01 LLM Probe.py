@@ -1240,6 +1240,30 @@ def plot_neuron_alignment(mean_diff, weights, layer_index, run_folder):
     return fig
 # --- END NEW FUNCTION ---
 
+# --- NEW FUNCTION: Plot Alignment Strength by Layer ---
+
+
+def plot_alignment_strength_by_layer(alignment_strengths, model_name, dataset_source, run_folder):
+    """Plot alignment strength (correlation coefficient) by layer."""
+    fig, ax = plt.subplots(figsize=(10, 6))
+    layers = range(len(alignment_strengths))
+    ax.plot(layers, alignment_strengths, marker="o",
+            linewidth=2, color="#6A0DAD")  # Purple
+    ax.set_title(
+        f"Alignment Strength (Probe Weight vs. Activation Diff Correlation) - {model_name} on {dataset_source}", fontsize=12)
+    ax.set_xlabel("Layer", fontsize=12)
+    ax.set_ylabel("Pearson Correlation Coefficient", fontsize=12)
+    ax.set_ylim(-1.05, 1.05)
+    ax.axhline(0, color='grey', lw=0.8, linestyle='--')
+    ax.grid(True, alpha=0.3)
+    for i, corr in enumerate(alignment_strengths):
+        ax.annotate(f"{corr:.3f}", (i, corr), textcoords="offset points",
+                    xytext=(0, 5), ha='center')
+    plt.tight_layout()
+    save_graph(fig, os.path.join(run_folder, "alignment_strength_plot.png"))
+    return fig
+# --- END NEW FUNCTION ---
+
 # Update progress functions with enhanced UI
 
 
@@ -1444,36 +1468,101 @@ if run_button:
 
             st.dataframe(acc_df)
 
-            if use_control_tasks and results['selectivities']:
-                fig_sel = plot_selectivity_by_layer(
-                    results['selectivities'], results['accuracies'],
-                    results['control_accuracies'], model_name, dataset_source
-                )
-                selectivity_plot.pyplot(fig_sel)
-                with st.expander("What does this chart show?", expanded=False):
-                    st.markdown("""
-                    This chart visualizes the performance of the linear truth probes across different layers of the model.
+            # --- Calculate Alignment Strengths for all layers ---
+            all_layers_mean_diff_activations_for_corr = []
+            probe_weights_for_corr = []
+            alignment_strengths = []
 
-                    - **Accuracy (Blue Line):** Shows the percentage of test statements the probe for each layer correctly classified as true or false. Higher accuracy means the probe found a better truth-related signal in that layer. An accuracy of 0.5 is chance-level.
-                    - **Control Accuracy (Yellow Dashed Line):** Shows the accuracy of a control probe trained on the same layer but with *shuffled labels*. This helps check if the main probe's accuracy is due to real learning or fitting to noise. Ideally, control accuracy is around 0.5.
-                    - **Selectivity (Green Line):** Calculated as `Accuracy - Control Accuracy`. A high selectivity score suggests the probe genuinely learned a truth-distinguishing feature, not just random patterns.
+            if test_hidden_states.nelement() > 0 and test_labels.nelement() > 0:
+                for layer_idx in range(num_layers):
+                    layer_feats_corr = test_hidden_states[:, layer_idx, :]
+                    true_indices_corr = (
+                        test_labels == 1).nonzero(as_tuple=True)[0]
+                    false_indices_corr = (
+                        test_labels == 0).nonzero(as_tuple=True)[0]
 
-                    The x-axis is the layer number (earlier to later). This shows how the linear decodability of truth changes with model depth.
-                    If only the blue "Accuracy" line is shown, it means control tasks were not run, so selectivity isn't calculated.
-                    """)
-            else:
-                fig_acc = plot_accuracy_by_layer(
-                    results['accuracies'], model_name, dataset_source)
-                accuracy_plot.pyplot(fig_acc)
-                with st.expander("What does this chart show?", expanded=False):
-                    st.markdown("""
-                    This chart visualizes the performance of the linear truth probes across different layers of the model.
+                    if len(true_indices_corr) > 0 and len(false_indices_corr) > 0:
+                        mean_true_corr = layer_feats_corr[true_indices_corr].mean(
+                            dim=0).cpu().numpy()
+                        mean_false_corr = layer_feats_corr[false_indices_corr].mean(
+                            dim=0).cpu().numpy()
+                        diff_act_corr = mean_true_corr - mean_false_corr
+                        all_layers_mean_diff_activations_for_corr.append(
+                            diff_act_corr)
 
-                    - **Accuracy (Blue Line):** Shows the percentage of test statements the probe for each layer correctly classified as true or false. Higher accuracy means the probe found a better truth-related signal in that layer. An accuracy of 0.5 is chance-level.
+                        current_probe_weights_corr = results['probes'][layer_idx].linear.weight[0].cpu(
+                        ).detach().numpy()
+                        probe_weights_for_corr.append(
+                            current_probe_weights_corr)
 
-                    The x-axis is the layer number (earlier to later). This shows how the linear decodability of truth changes with model depth.
-                    (Control tasks were not run, so selectivity and control accuracy are not displayed).
-                    """)
+                        # Ensure both arrays are 1D and have the same length
+                        if diff_act_corr.ndim == 1 and current_probe_weights_corr.ndim == 1 and len(diff_act_corr) == len(current_probe_weights_corr) and len(diff_act_corr) > 1:
+                            correlation = np.corrcoef(
+                                diff_act_corr, current_probe_weights_corr)[0, 1]
+                            alignment_strengths.append(correlation)
+                        else:
+                            # Append NaN if correlation cannot be computed
+                            alignment_strengths.append(np.nan)
+                    else:
+                        all_layers_mean_diff_activations_for_corr.append(
+                            np.array([]))  # Or None, or np.nan array
+                        probe_weights_for_corr.append(np.array([]))
+                        alignment_strengths.append(np.nan)
+            # --- End Alignment Strength Calculation ---
+
+            with accuracy_tab_container:  # Display in the first sub-tab of Probe Analysis
+                if use_control_tasks and results['selectivities']:
+                    fig_sel = plot_selectivity_by_layer(
+                        results['selectivities'], results['accuracies'],
+                        results['control_accuracies'], model_name, dataset_source
+                    )
+                    selectivity_plot.pyplot(fig_sel)
+                    with st.expander("What does this chart show?", expanded=False):
+                        st.markdown("""
+                        This chart visualizes the performance of the linear truth probes across different layers of the model.
+
+                        - **Accuracy (Blue Line):** Shows the percentage of test statements the probe for each layer correctly classified as true or false. Higher accuracy means the probe found a better truth-related signal in that layer. An accuracy of 0.5 is chance-level.
+                        - **Control Accuracy (Yellow Dashed Line):** Shows the accuracy of a control probe trained on the same layer but with *shuffled labels*. This helps check if the main probe's accuracy is due to real learning or fitting to noise. Ideally, control accuracy is around 0.5.
+                        - **Selectivity (Green Line):** Calculated as `Accuracy - Control Accuracy`. A high selectivity score suggests the probe genuinely learned a truth-distinguishing feature, not just random patterns.
+
+                        The x-axis is the layer number (earlier to later). This shows how the linear decodability of truth changes with model depth.
+                        If only the blue "Accuracy" line is shown, it means control tasks were not run, so selectivity isn't calculated.
+                        """)
+                else:
+                    fig_acc = plot_accuracy_by_layer(
+                        results['accuracies'], model_name, dataset_source)
+                    accuracy_plot.pyplot(fig_acc)
+                    with st.expander("What does this chart show?", expanded=False):
+                        st.markdown("""
+                        This chart visualizes the performance of the linear truth probes across different layers of the model.
+
+                        - **Accuracy (Blue Line):** Shows the percentage of test statements the probe for each layer correctly classified as true or false. Higher accuracy means the probe found a better truth-related signal in that layer. An accuracy of 0.5 is chance-level.
+
+                        The x-axis is the layer number (earlier to later). This shows how the linear decodability of truth changes with model depth.
+                        (Control tasks were not run, so selectivity and control accuracy are not displayed).
+                        """)
+
+                # Display Alignment Strength Plot
+                if alignment_strengths:
+                    fig_align_strength = plot_alignment_strength_by_layer(
+                        alignment_strengths, model_name, dataset_source, run_folder
+                    )
+                    st.pyplot(fig_align_strength)
+                    with st.expander("What does the Alignment Strength chart show?", expanded=False):
+                        st.markdown("""
+                        This chart displays the **Alignment Strength** for each layer, measured as the Pearson correlation coefficient between two sets of values for all neurons in that layer:
+                        1.  **Mean Activation Difference (True - False):** How much each neuron's average activation changes when the model processes TRUE statements versus FALSE statements.
+                        2.  **Probe Weight:** The weight assigned to each neuron by the trained linear probe for that layer.
+
+                        **Interpretation:**
+                        -   **Correlation near +1:** Strong positive alignment. Neurons that are naturally more active for TRUE statements are also given positive (excitatory for TRUE) weights by the probe, and neurons more active for FALSE get negative weights. The probe is leveraging a clear, direct signal.
+                        -   **Correlation near -1:** Strong negative alignment. Neurons more active for TRUE are given negative weights by the probe (and vice-versa). This suggests the probe is learning an inverse relationship or relying on suppression of truth-aligned neurons to detect falsehood (or vice versa).
+                        -   **Correlation near 0:** Weak or no linear alignment. The probe's weights don't show a strong linear relationship with the neurons' natural True/False activation differences. The probe might be learning more complex, non-linear patterns, or the truth signal might be weak/diffuse in that layer with respect to these two measures.
+
+                        This plot helps understand how directly the probe's learned strategy aligns with the raw activation patterns related to truth at each layer.
+                        """)
+                else:
+                    st.info("Alignment strength data could not be computed.")
 
             # Restore PCA Tab Content
             with pca_tab_container:
@@ -1686,6 +1775,56 @@ if run_button:
                         else:
                             st.info(
                                 "Neuron alignment data is not available. This usually requires both probe weights and activation differences to be successfully computed.")
+
+                        # --- Top-K Influential Neurons ---
+                        st.subheader(
+                            f"Top 10 Influential Neurons for Layer {selected_layer}")
+                        if 'diff_activations' in locals() and diff_activations is not None and \
+                           results and 'probes' in results and selected_layer < len(results['probes']):
+                            current_probe_weights = results['probes'][selected_layer].linear.weight[0].cpu(
+                            ).detach().numpy()
+                            contribution_scores = np.abs(
+                                diff_activations * current_probe_weights)
+
+                            k = 10
+                            top_k_indices = np.argsort(
+                                contribution_scores)[::-1][:k]
+
+                            top_k_data = []
+                            for rank, neuron_idx in enumerate(top_k_indices):
+                                top_k_data.append({
+                                    "Rank": rank + 1,
+                                    "Neuron Index": neuron_idx,
+                                    "Contribution Score (abs(Diff*Weight))": contribution_scores[neuron_idx],
+                                    "Mean Activation Difference": diff_activations[neuron_idx],
+                                    "Probe Weight": current_probe_weights[neuron_idx]
+                                })
+
+                            if top_k_data:
+                                df_top_k = pd.DataFrame(top_k_data)
+                                st.dataframe(df_top_k.style.format({
+                                    "Contribution Score (abs(Diff*Weight))": "{:.4f}",
+                                    "Mean Activation Difference": "{:.4f}",
+                                    "Probe Weight": "{:.4f}"
+                                }))
+                            else:
+                                st.info(
+                                    "No influential neurons to display for this layer.")
+
+                            with st.expander("What does this table show?", expanded=False):
+                                st.markdown("""
+                                This table lists the top neurons for this layer, ranked by their combined influence. The influence is measured by the **Contribution Score**, which is the absolute product of:
+                                1.  **Mean Activation Difference:** How much the neuron's average activation differs when processing TRUE versus FALSE statements.
+                                2.  **Probe Weight:** The weight assigned to this neuron by the linear probe.
+
+                                Neurons with a high contribution score are those that both show a strong natural distinction between true/false statements AND are heavily relied upon by the probe for its classification.
+                                -   **Neuron Index:** The index of the neuron within the layer's hidden dimension.
+                                -   **Mean Activation Difference:** Positive means more active for TRUE; negative means more active for FALSE.
+                                -   **Probe Weight:** Positive means the probe uses its activation to predict TRUE; negative for FALSE.
+                                """)
+                        else:
+                            st.info(
+                                "Top-K influential neuron data cannot be computed for this layer. This typically requires activation differences and probe weights.")
 
                         # Show details for selected layer in columns
                         col1, col2 = st.columns(2)
@@ -2006,6 +2145,13 @@ if run_button:
         accuracy_plot_path = os.path.join(run_folder, "accuracy_plot.png")
         save_graph(fig_acc if not use_control_tasks else fig_sel,
                    accuracy_plot_path)
+
+        if alignment_strengths:  # Save alignment strength plot if available
+            alignment_strength_plot_path = os.path.join(
+                run_folder, "alignment_strength_plot.png")
+            # The plot is already saved by plot_alignment_strength_by_layer, so this explicit save_graph call might be redundant
+            # but ensuring it by having the path defined for records is good.
+            # save_graph(fig_align_strength, alignment_strength_plot_path) # Already saved in function
 
         pca_path = os.path.join(run_folder, "pca_plot.png")
         save_graph(fig_pca,
