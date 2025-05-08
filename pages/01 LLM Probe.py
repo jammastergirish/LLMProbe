@@ -231,11 +231,11 @@ with col2:
     with st.expander("📚 Understanding Memory Requirements"):
         st.markdown("""
         ### How Memory is Calculated
-        
+
         - **Parameter Memory**: Calculated as `number of parameters × bytes per parameter`
         - **Activation Memory**: Calculated as `batch_size × sequence_length × hidden_dimension × number_of_layers × bytes_per_value`
         - **Total Memory**: Sum of parameter and activation memory, with a 20% overhead factor
-        
+
         Larger batch sizes and sequence lengths will significantly increase memory usage. Consider reducing these values if you encounter out-of-memory errors.
         """)
 
@@ -1509,10 +1509,30 @@ if run_button:
                     results['control_accuracies'], model_name, dataset_source
                 )
                 selectivity_plot.pyplot(fig_sel)
+                with st.expander("What does this chart show?", expanded=False):
+                    st.markdown("""
+                    This chart visualizes the performance of the linear truth probes across different layers of the model.
+
+                    - **Accuracy (Blue Line):** Shows the percentage of test statements the probe for each layer correctly classified as true or false. Higher accuracy means the probe found a better truth-related signal in that layer. An accuracy of 0.5 is chance-level.
+                    - **Control Accuracy (Yellow Dashed Line):** Shows the accuracy of a control probe trained on the same layer but with *shuffled labels*. This helps check if the main probe's accuracy is due to real learning or fitting to noise. Ideally, control accuracy is around 0.5.
+                    - **Selectivity (Green Line):** Calculated as `Accuracy - Control Accuracy`. A high selectivity score suggests the probe genuinely learned a truth-distinguishing feature, not just random patterns.
+
+                    The x-axis is the layer number (earlier to later). This shows how the linear decodability of truth changes with model depth.
+                    If only the blue "Accuracy" line is shown, it means control tasks were not run, so selectivity isn't calculated.
+                    """)
             else:
                 fig_acc = plot_accuracy_by_layer(
                     results['accuracies'], model_name, dataset_source)
                 accuracy_plot.pyplot(fig_acc)
+                with st.expander("What does this chart show?", expanded=False):
+                    st.markdown("""
+                    This chart visualizes the performance of the linear truth probes across different layers of the model.
+
+                    - **Accuracy (Blue Line):** Shows the percentage of test statements the probe for each layer correctly classified as true or false. Higher accuracy means the probe found a better truth-related signal in that layer. An accuracy of 0.5 is chance-level.
+
+                    The x-axis is the layer number (earlier to later). This shows how the linear decodability of truth changes with model depth.
+                    (Control tasks were not run, so selectivity and control accuracy are not displayed).
+                    """)
 
         with pca_tab:
             # PCA grid
@@ -1520,6 +1540,22 @@ if run_button:
             fig_pca = plot_pca_grid(
                 test_hidden_states, test_labels, results['probes'], model_name, dataset_source)
             pca_plot.pyplot(fig_pca)
+            with st.expander("What does this chart show?", expanded=False):
+                st.markdown("""
+                This grid of plots visualizes the hidden state activations from each layer of the model after being reduced to two dimensions using **Principal Component Analysis (PCA)**.
+                PCA finds the two directions (principal components) that capture the most variance in the high-dimensional activation data.
+
+                - **Each small plot** corresponds to a different layer in the model.
+                - **Points:** Each point represents a single statement from your test set.
+                    - **Green points** are statements labeled as "True."
+                    - **Red points** are statements labeled as "False."
+                - **Separation:** If true and false statements form distinct clusters in this 2D view, it suggests that the activations at that layer, even when simplified to 2D, contain information that can distinguish them.
+                - **Misclassified Points (Blue Circles):** Points circled in blue are those that the linear probe for that layer misclassified. This shows where the probe's decision boundary in the original high-dimensional space doesn't perfectly align with the true labels.
+                - **Decision Boundary (Dashed Line):** The dashed black line (if present) is an *approximation* of the linear probe's decision boundary, projected into this 2D PCA space.
+                - **Variance Explained (Var=X% in title):** This percentage indicates how much of the original variance in the high-dimensional activations is captured by the two principal components shown. A higher percentage means the 2D plot is a more faithful representation of the data's spread.
+
+                Looking across layers, you can see if and where the representations of true and false statements become more separable in this simplified 2D view.
+                """)
 
         with projection_tab:
             # Truth projection grid
@@ -1527,6 +1563,22 @@ if run_button:
             fig_proj = plot_truth_projections(
                 test_hidden_states, test_labels, results['probes'])
             projection_plot.pyplot(fig_proj)
+            with st.expander("What does this chart show?", expanded=False):
+                st.markdown("""
+                This grid of plots visualizes how well the hidden state activations for true and false statements separate when projected onto the **"truth direction"** learned by the linear probe for each layer.
+
+                - **Each small plot** corresponds to a different layer in the model.
+                - **"Truth Direction":** For each layer, the linear probe learns a weight vector. This vector defines a direction in the high-dimensional activation space that the probe associates with "truth."
+                - **Projection:** Activations from the test set are projected onto this learned truth direction, resulting in a single scalar value for each statement.
+                - **Histograms:**
+                    - **Green Histogram:** Distribution of projected values for statements that are actually **True**.
+                    - **Red Histogram:** Distribution of projected values for statements that are actually **False**.
+                - **Separation & Overlap:** Ideally, the green and red histograms should be well-separated with minimal overlap. The `Overlap` value in the title quantifies this mixing (lower is better).
+                - **Decision Boundary (Vertical Dashed Line):** Represents the probe's decision threshold (usually at x=0).
+                - **Accuracy (Acc=X.XX in title):** The probe's accuracy for that layer.
+
+                This helps visualize, layer by layer, how distinctly the probe's learned truth direction separates true and false statements.
+                """)
 
         with data_tab:
             # Display numeric results
@@ -1678,7 +1730,8 @@ if run_button:
                                 test_labels_device == 1)).sum().item()
 
                             # Calculate metrics
-                            accuracy = (TP + TN) / (TP + TN + FP + FN)
+                            accuracy = (TP + TN) / (TP + TN + FP +
+                                                    FN) if (TP + TN + FP + FN) > 0 else 0
                             precision = TP / (TP + FP) if (TP + FP) > 0 else 0
                             recall = TP / (TP + FN) if (TP + FN) > 0 else 0
                             f1 = 2 * precision * recall / \
@@ -1729,6 +1782,20 @@ if run_button:
                             ax_proj.legend()
 
                             st.pyplot(fig_proj_individual)
+                            with st.expander("What does this chart show?", expanded=False):
+                                st.markdown("""
+                                This chart visualizes how well the hidden state activations for true and false statements from the test set separate when projected onto the **"truth direction"** learned by the linear probe specifically for **this layer**.
+
+                                - **"Truth Direction":** The linear probe for this layer learned a weight vector, defining a direction in this layer's activation space that the probe associates with "truth."
+                                - **Projection:** Activations from the test set are projected onto this learned truth direction, giving a single scalar value per statement.
+                                - **Histograms:**
+                                    - **Green Histogram:** Distribution of projected values for **True** statements.
+                                    - **Red Histogram:** Distribution of projected values for **False** statements.
+                                - **Separation:** Ideally, the green and red histograms should be well-separated.
+                                - **Decision Boundary (Vertical Dashed Line):** Represents this probe's decision threshold (usually at x=0).
+
+                                This chart helps assess how clearly this specific layer's probe distinguishes true from false statements along its learned truth axis.
+                                """)
 
                     with col2:
                         st.subheader("Confusion Matrix")
@@ -1759,6 +1826,22 @@ if run_button:
 
                         plt.tight_layout()
                         st.pyplot(fig)
+                        with st.expander("What does this chart show?", expanded=False):
+                            st.markdown("""
+                            This table summarizes the performance of the truth probe for this specific layer on the test set.
+
+                            - **Rows** represent the **Actual** labels (False or True).
+                            - **Columns** represent the **Predicted** labels (False or True) made by the probe.
+
+                            The cells show the counts of test examples falling into each category:
+
+                            - **Top-Left (Actual False, Predicted False):** True Negatives (TN) - Correctly identified as false.
+                            - **Top-Right (Actual False, Predicted True):** False Positives (FP) - Incorrectly identified as true (Type I Error).
+                            - **Bottom-Left (Actual True, Predicted False):** False Negatives (FN) - Incorrectly identified as false (Type II Error).
+                            - **Bottom-Right (Actual True, Predicted True):** True Positives (TP) - Correctly identified as true.
+
+                            Ideally, for a good probe, the numbers on the main diagonal (TN and TP) should be high, while the off-diagonal numbers (FP and FN) should be low.
+                            """)
 
                         # Add examples
                         st.subheader("Example Predictions")

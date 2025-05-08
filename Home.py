@@ -97,10 +97,10 @@ torch_version = torch.__version__
 if torch.cuda.is_available():
     gpu = f"CUDA ({torch.cuda.get_device_name(0)})"
 else:
-    gpu = "No CUDA (Try [RunPod](https://runpod.io?ref=avnw83xb))"
+    gpu = "Not available (Try [RunPod](https://runpod.io?ref=avnw83xb))"
 
-mps = "Available (Apple Silicon)" if getattr(torch.backends, "mps",
-                                             None) and torch.backends.mps.is_available() else "Not available"
+mps = "Available via Apple Silicon" if getattr(torch.backends, "mps",
+                                               None) and torch.backends.mps.is_available() else "Not available"
 
 # --- Display as Markdown Table ---
 st.markdown(f"""
