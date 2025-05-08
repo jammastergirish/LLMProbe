@@ -140,6 +140,21 @@ if model_name == "custom":
 dataset_source = st.sidebar.selectbox(" 📊 Dataset",
                                       ["truefalse", "truthfulqa", "boolq", "arithmetic", "fever", "custom"])
 
+all_tf_splits = [
+    "animals", "cities", "companies",
+    "inventions", "facts", "elements", "generated"
+]
+
+if dataset_source == "truefalse":
+    selected_tf_splits = st.sidebar.multiselect(
+        "Select TrueFalse dataset categories",
+        options=all_tf_splits,
+        default=all_tf_splits
+    )
+    tf_splits = selected_tf_splits
+else:
+    tf_splits = all_tf_splits
+
 if dataset_source == "custom":
     custom_file = st.sidebar.file_uploader(
         "Upload CSV file with 'statement' and 'label' (containing 1 or 0) columns",
@@ -585,11 +600,6 @@ def load_dataset(dataset_source, progress_callback, max_samples=5000, custom_fil
                           "Initializing true-false datasets from multiple sources")
         try:
             from datasets import load_dataset, concatenate_datasets
-
-            tf_splits = [
-                "animals", "cities", "companies",
-                "inventions", "facts", "elements", "generated"
-            ]
 
             progress_callback(0.65, "Loading TrueFalse dataset splits...",
                               f"Processing {len(tf_splits)} dataset categories")
