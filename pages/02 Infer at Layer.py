@@ -9,8 +9,10 @@ from transformers import (
 from transformer_lens import HookedTransformer
 import pandas as pd
 import os
+from utils.models import model_options
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = '1'
+
 
 def logit_lens_eval_llama3(model, tokenizer, prompt, target_token):
     import pandas as pd
@@ -78,7 +80,6 @@ def logit_lens_eval_llama4(model, tokenizer, prompt, target_token):
         pred_id = torch.argmax(probs_softmax).item()
         pred_token = tokenizer.decode(pred_id)
 
-
         if probs_softmax.dim() == 2:
             confidence = probs_softmax[0, target_id].item()
         else:
@@ -116,7 +117,7 @@ def logit_lens_eval_gpt2_or_deepseek(model, tokenizer, prompt, target_token):
         probs_softmax = torch.softmax(logits, dim=-1)
         pred_id = torch.argmax(probs_softmax).item()
         pred_token = tokenizer.decode(pred_id)
-        
+
         if probs_softmax.dim() == 2:
             confidence = probs_softmax[0, target_id].item()
         else:
@@ -198,13 +199,7 @@ st.title("🔍 Inference at All Layers")
 prompt = st.text_input("Prompt", "The capital of France is")
 target = st.text_input("Target token", " Paris")
 
-model_choice = st.selectbox("Choose a model", [
-    "meta-llama/Llama-3.2-1B-Instruct",     # TransformerLens
-    "meta-llama/Llama-4-Scout-17B-16E-Instruct",  # HF causal
-    "deepseek-ai/DeepSeek-V3-Base",  # HF causal
-    "gpt2",                                  # HF causal
-    "bert-base-uncased",                    # HF masked
-])
+model_choice = st.selectbox("Choose a model", model_options)
 
 if st.button("Run Analysis"):
     if "llama-3" in model_choice.lower():
@@ -218,7 +213,8 @@ if st.button("Run Analysis"):
     elif any(x in model_choice.lower() for x in ["llama-4", "gpt2", "deepseek", "v3"]):
         model = AutoModelForCausalLM.from_pretrained(
             model_choice,
-            device_map="auto",  # https://github.com/pytorch/pytorch/issues/141287. Switch to MPS or auto when possible
+            # https://github.com/pytorch/pytorch/issues/141287. Switch to MPS or auto when possible
+            device_map="auto",
             torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32
         )
         tokenizer = AutoTokenizer.from_pretrained(model_choice)

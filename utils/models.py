@@ -1,0 +1,22 @@
+model_options = [
+    "meta-llama/Llama-3.2-1B-Instruct",
+    "meta-llama/Llama-3.2-1B",
+    "meta-llama/Llama-3.2-3B-Instruct",
+    "meta-llama/Llama-3.2-3B",
+    "google/gemma-2-2b-it",
+    "google/gemma-2-2b",
+    "Qwen/Qwen2.5-1.5B-Instruct",
+    "Qwen/Qwen2.5-32B-Instruct",
+    "Qwen/Qwen3-1.7B",
+    "Qwen/Qwen3-4B",
+    "Qwen/Qwen3-8B",
+    "mistralai/Mistral-7B-v0.1",
+    "deepseek-ai/DeepSeek-V3-Base",
+    "bert-base-uncased",
+    "bert-large-uncased",
+    "roberta-base",
+    "gpt2",
+    "gpt2-medium",
+    "gpt2-large",
+    "custom"
+]

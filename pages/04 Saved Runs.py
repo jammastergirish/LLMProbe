@@ -11,7 +11,8 @@ st.title("📊 Saved Runs")
 # List all saved runs
 if os.path.exists(SAVED_DATA_DIR):
     run_folders = sorted(
-        [f for f in os.listdir(SAVED_DATA_DIR) if os.path.isdir(os.path.join(SAVED_DATA_DIR, f))],
+        [f for f in os.listdir(SAVED_DATA_DIR) if os.path.isdir(
+            os.path.join(SAVED_DATA_DIR, f))],
         key=lambda x: os.path.getctime(os.path.join(SAVED_DATA_DIR, x)),
         reverse=True  # Descending order
     )
