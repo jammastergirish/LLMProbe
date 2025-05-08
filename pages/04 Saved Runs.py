@@ -129,6 +129,8 @@ if os.path.exists(SAVED_DATA_DIR):
                                         layer_viz_dir, "truth_projection.png")
                                     conf_matrix_path = os.path.join(
                                         layer_viz_dir, "confusion_matrix.png")
+                                    neuron_alignment_path = os.path.join(
+                                        layer_viz_dir, "neuron_alignment.png")
 
                                     # Display if exists
                                     if os.path.exists(probe_weights_path):
@@ -143,6 +145,9 @@ if os.path.exists(SAVED_DATA_DIR):
                                     if os.path.exists(conf_matrix_path):
                                         st.image(
                                             conf_matrix_path, caption="Confusion Matrix", use_container_width=True)
+                                    if os.path.exists(neuron_alignment_path):
+                                        st.image(
+                                            neuron_alignment_path, caption="Neuron Alignment (Weight vs. Activation Diff)", use_container_width=True)
 
                         else:
                             st.info(

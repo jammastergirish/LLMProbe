@@ -1188,6 +1188,58 @@ def plot_truth_projections(test_hidden_states, test_labels, probes):
                  fontsize=20, y=0.98)
     return fig
 
+# --- NEW FUNCTION: Plot Neuron Alignment ---
+
+
+def plot_neuron_alignment(mean_diff, weights, layer_index, run_folder):
+    """
+    Plots probe weight vs. mean activation difference for neurons.
+    Size of points indicates combined importance.
+    """
+    fig, ax = plt.subplots(figsize=(10, 7))
+
+    # Calculate product for size emphasis (ensure non-negative sizes)
+    # Adding a small epsilon to avoid zero size for points on axes but still important
+    sizes = np.abs(mean_diff * weights) * 1000 + \
+        5  # Scaled for visibility + base size
+    sizes = np.clip(sizes, 5, 500)  # Clip sizes to a reasonable range
+
+    scatter = ax.scatter(mean_diff, weights, s=sizes,
+                         alpha=0.7, cmap="viridis", c=sizes)
+
+    ax.axhline(0, color='grey', lw=0.8, linestyle='--')
+    ax.axvline(0, color='grey', lw=0.8, linestyle='--')
+
+    ax.set_xlabel("Mean Activation Difference (True - False)", fontsize=12)
+    ax.set_ylabel("Probe Weight", fontsize=12)
+    ax.set_title(
+        f"Neuron Alignment: Weight vs. Activation Diff - Layer {layer_index}", fontsize=14)
+    ax.grid(True, alpha=0.3)
+
+    # Add quadrant labels for interpretation
+    ax.text(0.95, 0.95, "High Diff, High Weight (Aligned True)", transform=ax.transAxes, ha='right', va='top',
+            fontsize=9, color='green', bbox=dict(boxstyle='round,pad=0.3', fc='white', ec='green', alpha=0.7))
+    ax.text(0.05, 0.05, "Low Diff, Low Weight (Aligned False)", transform=ax.transAxes, ha='left', va='bottom',
+            fontsize=9, color='red', bbox=dict(boxstyle='round,pad=0.3', fc='white', ec='red', alpha=0.7))
+    ax.text(0.05, 0.95, "Low Diff, High Weight (Probe relies, low natural signal for True)", transform=ax.transAxes,
+            ha='left', va='top', fontsize=9, color='blue', bbox=dict(boxstyle='round,pad=0.3', fc='white', ec='blue', alpha=0.7))
+    ax.text(0.95, 0.05, "High Diff, Low Weight (Probe relies, low natural signal for False)", transform=ax.transAxes, ha='right',
+            va='bottom', fontsize=9, color='purple', bbox=dict(boxstyle='round,pad=0.3', fc='white', ec='purple', alpha=0.7))
+
+    # Add a colorbar if using color encoding that varies meaningfully
+    # cbar = fig.colorbar(scatter, label='Importance (abs(Diff * Weight))')
+    # cbar.ax.tick_params(labelsize=10)
+
+    plt.tight_layout()
+
+    # Save the figure
+    layer_save_dir = os.path.join(run_folder, "layers", str(layer_index))
+    os.makedirs(layer_save_dir, exist_ok=True)
+    save_graph(fig, os.path.join(layer_save_dir, "neuron_alignment.png"))
+
+    return fig
+# --- END NEW FUNCTION ---
+
 # Update progress functions with enhanced UI
 
 
@@ -1587,6 +1639,53 @@ if run_button:
                         else:
                             st.info(
                                 "Test hidden states or labels are empty, cannot plot activation differences.")
+
+                        # --- Chart 3: Neuron Alignment (Probe Weight vs. Activation Difference) ---
+                        st.subheader(
+                            f"Neuron Alignment: Probe Weight vs. Activation Difference - Layer {selected_layer}")
+                        if results and 'probes' in results and selected_layer < len(results['probes']) and 'diff_activations' in locals() and diff_activations is not None:
+                            probe = results['probes'][selected_layer]
+                            probe_weights_for_alignment = probe.linear.weight[0].cpu(
+                                # Already defined as probe_weights earlier
+                            ).detach().numpy()
+
+                            # Ensure mean_diff (diff_activations) and probe_weights_for_alignment are available
+                            # diff_activations should be available from the previous plot
+                            fig_neuron_alignment = plot_neuron_alignment(
+                                diff_activations,  # This is mean_activation_true - mean_activation_false
+                                probe_weights_for_alignment,
+                                selected_layer,
+                                run_folder
+                            )
+                            st.pyplot(fig_neuron_alignment)
+
+                            with st.expander("What does this chart show?", expanded=False):
+                                st.markdown("""
+                                This scatter plot visualizes the relationship between two key properties of each neuron (or element in the hidden dimension) at this layer:
+
+                                1.  **Mean Activation Difference (x-axis):** How much a neuron's average activation changes when the model processes TRUE statements versus FALSE statements.
+                                    *   *Positive x-values:* Neuron is more active for TRUE statements.
+                                    *   *Negative x-values:* Neuron is more active for FALSE statements.
+                                    *   *Values near zero:* Neuron shows little difference in average activation.
+
+                                2.  **Probe Weight (y-axis):** The weight assigned to this neuron by the trained linear probe.
+                                    *   *Positive y-values:* High activation contributes to a TRUE prediction by the probe.
+                                    *   *Negative y-values:* High activation contributes to a FALSE prediction by the probe.
+                                    *   *Values near zero:* Neuron is not considered important by the probe.
+
+                                **Interpretation of Quadrants:**
+
+                                *   **Top-Right (High Diff, High Weight - e.g., Green Zone):** These neurons are naturally more active for TRUE statements AND the probe gives them a positive weight (considers them indicative of TRUE). This indicates strong alignment; the probe leverages a natural signal.
+                                *   **Bottom-Left (Low Diff, Low Weight - e.g., Red Zone):** These neurons are naturally more active for FALSE statements (negative difference) AND the probe gives them a negative weight (considers them indicative of FALSE). This also indicates strong alignment.
+                                *   **Top-Left (Low Diff, High Weight - e.g., Blue Zone):** These neurons don't show a strong natural preference for TRUE (x near 0 or negative), but the probe gives them a positive weight. The probe might be finding a subtle pattern or relying on this neuron in combination with others.
+                                *   **Bottom-Right (High Diff, Low Weight - e.g., Purple Zone):** These neurons are naturally more active for TRUE statements, but the probe gives them a negative weight. This suggests a misalignment or a more complex role for this neuron.
+                                *   **Near Origin (0,0):** Neurons that are neither strongly discriminative on their own nor heavily weighted by the probe.
+
+                                **Point Size:** The size of each point is proportional to the product of the absolute mean activation difference and the absolute probe weight. Larger points highlight neurons that are strongly indicative in *both* aspects (high natural difference and high probe importance).
+                                """)
+                        else:
+                            st.info(
+                                "Neuron alignment data is not available. This usually requires both probe weights and activation differences to be successfully computed.")
 
                         # Show details for selected layer in columns
                         col1, col2 = st.columns(2)
