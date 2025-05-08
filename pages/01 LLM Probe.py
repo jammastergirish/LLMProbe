@@ -1625,6 +1625,17 @@ if run_button:
                                 True, axis='y', linestyle='--', alpha=0.7)
                             plt.tight_layout()
                             st.pyplot(fig_diff_activations)
+
+                            with st.expander("What does this chart show?", expanded=False):
+                                st.markdown("""
+                                This chart displays the difference between the **mean (average) activation** of each neuron when the model processes **TRUE** statements versus when it processes **FALSE** statements from the test set.
+
+                                - **Positive Bar (bar goes up):** This neuron is, on average, **more active** when the input statement is TRUE compared to when it's false.
+                                - **Negative Bar (bar goes down):** This neuron is, on average, **less active** (or more negatively active) when the input statement is TRUE compared to when it's false. This means it tends to be more active for FALSE statements.
+                                - **Bar close to Zero:** This neuron's average activation level is similar for both true and false statements in the test set; its raw activity doesn't strongly distinguish between them on average.
+
+                                This visualization helps identify neurons whose raw activation levels (independent of any probe) show a systematic difference based on the ground truth label of the statements.
+                                """)
                         elif len(true_indices) == 0:
                             st.info(
                                 f"No true statements in the test set for layer {selected_layer} to calculate activation differences.")
