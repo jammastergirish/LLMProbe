@@ -2,3 +2,4 @@
 
 saved_data/
 .claude/settings.local.json
+*.pyc
