@@ -533,6 +533,7 @@ if run_button:
                         results['control_accuracies'], model_name, dataset_source
                     )
                     selectivity_plot.pyplot(fig_sel)
+                    save_graph(fig_sel, os.path.join(run_folder, "selectivity_plot.png"))
                     with st.expander("What does this chart show?", expanded=False):
                         st.markdown("""
                         This chart visualizes the performance of the linear truth probes across different layers of the model.
@@ -587,6 +588,7 @@ if run_button:
                 fig_pca = plot_pca_grid(
                     test_hidden_states, test_labels, results['probes'], model_name, dataset_source)
                 pca_plot.pyplot(fig_pca)
+                save_graph(fig_pca, os.path.join(run_folder, "pca_plot.png"))
                 with st.expander("What does this chart show?", expanded=False):
                     st.markdown("""
                     This grid of plots visualizes the hidden state activations from each layer of the model after being reduced to two dimensions using **Principal Component Analysis (PCA)**.
@@ -611,6 +613,7 @@ if run_button:
                 fig_proj = plot_truth_projections(
                     test_hidden_states, test_labels, results['probes'])
                 projection_plot.pyplot(fig_proj)
+                save_graph(fig_proj, os.path.join(run_folder, "proj_plot.png"))
                 with st.expander("What does this chart show?", expanded=False):
                     st.markdown("""
                     This grid of plots visualizes how well the hidden state activations for true and false statements separate when projected onto the **"truth direction"** learned by the linear probe for each layer.
