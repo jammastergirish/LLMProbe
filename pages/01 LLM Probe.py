@@ -113,8 +113,16 @@ if model_name == "custom":
     if not model_name:
         st.sidebar.error("Please enter a model.")
 
-dataset_source = st.sidebar.selectbox(" 📊 Dataset",
-                                      ["truefalse", "truthfulqa", "boolq", "arithmetic", "fever", "custom"])
+# Find CSV datasets from the datasets folder
+import glob
+csv_files = glob.glob('datasets/*.csv')
+dataset_options = ["truefalse", "truthfulqa", "boolq", "arithmetic", "fever", "custom"]
+
+# Add file-based datasets with .csv extension removed
+csv_dataset_options = [os.path.basename(f).replace('.csv', '') for f in csv_files]
+dataset_options.extend(csv_dataset_options)
+
+dataset_source = st.sidebar.selectbox(" 📊 Dataset", dataset_options)
 
 all_tf_splits = [
     "animals", "cities", "companies",
@@ -373,7 +381,38 @@ if run_button:
 
         # Pass custom_file if using custom dataset
         examples = []
-        if dataset_source == "custom":
+
+        # Check if the selected dataset is from the CSV files in the datasets folder
+        if dataset_source in csv_dataset_options:
+            dataset_tracker.update(0.1, f"Loading {dataset_source} dataset from file...",
+                                  f"Opening CSV file from datasets folder")
+
+            # Construct file path and open the CSV file
+            csv_file_path = f"datasets/{dataset_source}.csv"
+            try:
+                import pandas as pd
+                from io import StringIO
+
+                # Read CSV file directly
+                with open(csv_file_path, 'r') as f:
+                    csv_content = f.read()
+
+                # Create a file-like object to use with load_dataset
+                file_obj = StringIO(csv_content)
+                file_obj.name = f"{dataset_source}.csv"  # Set a name attribute for identification
+
+                examples = load_dataset(
+                    "custom",  # Treat as custom dataset
+                    dataset_tracker.update,
+                    max_samples=max_samples,
+                    custom_file=file_obj,
+                    tf_splits=tf_splits
+                )
+            except Exception as e:
+                dataset_tracker.update(1.0, f"Error loading {dataset_source} dataset", str(e))
+                st.error(f"Error loading CSV file {csv_file_path}: {str(e)}")
+                st.stop()
+        elif dataset_source == "custom":
             if custom_file is not None:
                 examples = load_dataset(
                     dataset_source,
@@ -383,8 +422,7 @@ if run_button:
                     tf_splits=tf_splits
                 )
             else:
-                dataset_tracker.update(
-                    1.0, "No file uploaded", "Please upload a CSV file")
+                dataset_tracker.update(1.0, "No file uploaded", "Please upload a CSV file")
                 st.error("Please upload a CSV file for custom dataset")
                 st.stop()
         else:
