@@ -15,6 +15,17 @@ import warnings
 import gc
 import time
 from datetime import datetime
+# Import sparse autoencoder utilities
+from utils.sparse_autoencoder import (
+    SparseAutoencoder, 
+    SupervisedSparseAutoencoder,
+    train_sparse_autoencoder,
+    plot_training_history,
+    visualize_feature_activations,
+    visualize_feature_weights,
+    compare_layers_sparsity,
+    compare_feature_correlation
+)
 warnings.filterwarnings('ignore')
 
 nest_asyncio.apply()
@@ -218,6 +229,56 @@ with st.sidebar.expander("⚙️ Probe Options"):
     batch_size = st.number_input("Batch size", min_value=1, max_value=64, value=16,
                                  help="Larger batches are faster but use more memory. Use smaller values for large models.")
 
+# Add Sparse Autoencoder configuration
+with st.sidebar.expander("🧠 Sparse Autoencoder Options"):
+    # Enable/disable sparse autoencoder training
+    train_sparse_ae = st.checkbox("Train Sparse Autoencoder", value=False,
+                                 help="Train a sparse autoencoder on the hidden states")
+    
+    if train_sparse_ae:
+        # Supervised or unsupervised
+        ae_supervised = st.checkbox("Supervised Training", value=True,
+                                   help="Use labels to guide autoencoder training")
+        
+        # Architecture options
+        ae_latent_dim = st.number_input("Latent Dimension Size", 
+                                       min_value=8, 
+                                       max_value=512, 
+                                       value=64,
+                                       help="Size of the autoencoder's latent space")
+        
+        # Training parameters
+        ae_epochs = st.number_input("AE Training Epochs", 
+                                   min_value=5, 
+                                   max_value=200, 
+                                   value=30)
+        
+        ae_learning_rate = st.number_input("AE Learning Rate", 
+                                          min_value=0.0001, 
+                                          max_value=0.01, 
+                                          value=0.001, 
+                                          format="%.4f")
+        
+        ae_l1_weight = st.number_input("L1 Regularization Weight", 
+                                      min_value=0.0, 
+                                      max_value=1.0, 
+                                      value=0.1, 
+                                      format="%.3f",
+                                      help="Weight for sparsity regularization")
+        
+        ae_batch_size = st.number_input("AE Batch Size", 
+                                       min_value=8, 
+                                       max_value=128, 
+                                       value=32)
+        
+        if ae_supervised:
+            ae_supervised_weight = st.number_input("Supervised Loss Weight", 
+                                                 min_value=0.1, 
+                                                 max_value=10.0, 
+                                                 value=1.0, 
+                                                 format="%.1f",
+                                                 help="Weight for supervised classification loss")
+
 run_button = st.sidebar.button(
     "🚀 Run Analysis", type="primary", use_container_width=True)
 
@@ -317,7 +378,7 @@ st.markdown("""
 
 # Create Main Tabs
 main_tabs = st.tabs(
-    ["Probe Analysis", "Sparse Autoencoder Analysis (Coming Soon)"])
+    ["Probe Analysis", "Sparse Autoencoder Analysis"])
 
 # Setup Probe Analysis Sub-Tabs and placeholders
 with main_tabs[0]:
@@ -340,9 +401,44 @@ with main_tabs[0]:
         # data_display = st.empty() # Content will be added directly later
         pass  # Data view content is complex, added dynamically
 
-# Placeholder for the second main tab
+# Setup Sparse Autoencoder Analysis tab - with basic explanation when not in use
 with main_tabs[1]:
-    st.info("Analysis for Sparse Autoencoders will be added here.")
+    st.markdown("""
+    ## Sparse Autoencoder Analysis
+    
+    Sparse autoencoders can help identify and interpret patterns in neural network representations
+    by encoding hidden states into a sparse set of interpretable features.
+    
+    To use this functionality:
+    1. Enable **"Train Sparse Autoencoder"** in the sidebar under "🧠 Sparse Autoencoder Options"
+    2. Configure the autoencoder parameters
+    3. Run the analysis
+    """)
+    
+    # This content will be displayed initially, but replaced during training
+    st.info("Enable 'Train Sparse Autoencoder' in the sidebar options to analyze sparse features in model representations.")
+    
+    # Show sample visuals
+    st.markdown("### Sample Visualizations")
+    st.image("https://raw.githubusercontent.com/anthropics/anthropic-cookbook/main/ai_safety/sparse_autoencoders/images/example_loss.png", 
+            caption="Example autoencoder training metrics")
+    
+    with st.expander("What are Sparse Autoencoders?", expanded=True):
+        st.markdown("""
+        **Sparse Autoencoders** are neural networks that compress data into a sparse representation,
+        where only a few neurons are active for each input. This encourages the model to learn
+        more interpretable and disentangled features.
+        
+        Benefits for LLM analysis:
+        
+        - **Feature Discovery**: Identify specific features that neurons or directions in activation space represent
+        - **Interpretability**: More interpretable representation of what each layer encodes 
+        - **Superposition**: Uncover concepts that might be encoded across multiple neurons
+        - **Mechanistic Understanding**: Help understand how information flows through model layers
+        
+        The sparse autoencoder training process uses L1 regularization to encourage sparsity in the
+        latent representations.
+        """)
 
 
 def load_model_and_tokenizer(model_name, progress_callback):
@@ -1314,14 +1410,47 @@ def update_training_progress(progress, message, details=""):
 
 
 def mark_complete(status_element, message="Complete"):
-    status_element.markdown(
-        f'<span class="status-success">{message}</span>', unsafe_allow_html=True)
+    # Handle both regular status elements and tracker dictionaries
+    if isinstance(status_element, dict) and 'status' in status_element:
+        status_element['status'].markdown(
+            f'<span class="status-success">{message}</span>', unsafe_allow_html=True)
+        status_element['progress_bar'].progress(1.0)
+    else:
+        status_element.markdown(
+            f'<span class="status-success">{message}</span>', unsafe_allow_html=True)
 
 
 def save_fig(fig, filename):
     """Save figure to disk"""
     fig.savefig(filename)
     add_log(f"Saved figure to {filename}")
+    
+# Helper functions for sparse autoencoder integration
+def create_status_tracker(label):
+    """Create a new status tracker with progress bar and status elements"""
+    st.markdown(f'#### {label}')
+    status_element = st.empty()
+    status_element.markdown(
+        '<span class="status-idle">Waiting to start...</span>', unsafe_allow_html=True)
+    progress_bar = st.progress(0)
+    progress_text = st.empty()
+    detail_text = st.empty()
+    
+    return {
+        'status': status_element,
+        'progress_bar': progress_bar,
+        'progress_text': progress_text,
+        'detail': detail_text
+    }
+
+def update_status(tracker, progress, message, details=""):
+    """Update a status tracker with new progress information"""
+    tracker['status'].markdown(
+        '<span class="status-running">Running</span>', unsafe_allow_html=True)
+    tracker['progress_bar'].progress(progress)
+    tracker['progress_text'].markdown(f"**{message}**")
+    tracker['detail'].text(details)
+    add_log(f"{message} ({progress:.0%}): {details}")
 
 
 # Main app logic
@@ -1463,6 +1592,175 @@ if run_button:
             epochs=train_epochs, lr=learning_rate
         )
         mark_complete(training_status)
+        
+        # 5. Train sparse autoencoders if enabled
+        if train_sparse_ae:
+            # Show a notification in the probe tab
+            st.success("✅ Probe training complete! Now training sparse autoencoders. **Please switch to the 'Sparse Autoencoder Analysis' tab** to view training progress.")
+            
+            # Create and set up the sparse autoencoder tab
+            with main_tabs[1]:
+                # Clear previous content
+                st.empty()
+                
+                # Create tabs for sparse autoencoder analysis
+                ae_tabs = st.tabs(["Training Progress", "Feature Activations", 
+                                  "Feature Importance", "Layer Comparison"])
+                
+                # Set up training tab
+                with ae_tabs[0]:
+                    ae_status = create_status_tracker("Training Sparse Autoencoders")
+                    
+                    # Add layer progress tracking
+                    st.markdown("### Overall Layer Progress")
+                    layer_progress_bar = st.progress(0)
+                    current_layer_info = st.empty()
+                
+                # Initialize other tabs
+                ae_activations_tab = ae_tabs[1]
+                ae_importance_tab = ae_tabs[2]
+                ae_comparison_tab = ae_tabs[3]
+                
+                # Callback for updating progress
+                def update_ae_progress(progress, status, detail):
+                    """Callback for updating AE training progress"""
+                    update_status(ae_status, progress, status, detail)
+            
+                # Storage for autoencoder results
+                ae_results = {
+                    'autoencoders': [],
+                    'histories': [],
+                    'visualizations': []
+                }
+                
+                update_ae_progress(0, "Initializing Sparse Autoencoder training", 
+                                 "Preparing to train autoencoders for each layer")
+                
+                # Train an autoencoder for each layer
+                for layer_idx in range(num_layers):
+                    # Update layer progress
+                    layer_progress = layer_idx / num_layers
+                    layer_progress_bar.progress(layer_progress)
+                    current_layer_info.info(f"**Layer {layer_idx+1}/{num_layers}** - Processing layer {layer_idx}")
+                    
+                    # Start training for this layer
+                    update_ae_progress(
+                        layer_progress,
+                        f"Training autoencoder for layer {layer_idx+1}/{num_layers}",
+                        f"Preparing data for layer {layer_idx}"
+                    )
+                    
+                    # Get hidden states for this layer
+                    train_layer_states = train_hidden_states[:, layer_idx, :]
+                    test_layer_states = test_hidden_states[:, layer_idx, :]
+                    
+                    # Get input dimension for this layer
+                    input_dim = train_layer_states.shape[1]
+                    
+                    # Create the appropriate autoencoder model
+                    if ae_supervised:
+                        model = SupervisedSparseAutoencoder(
+                            input_dim=input_dim,
+                            latent_dim=ae_latent_dim,
+                            num_classes=2,  # Binary classification (true/false)
+                            device=device
+                        )
+                    else:
+                        model = SparseAutoencoder(
+                            input_dim=input_dim,
+                            latent_dim=ae_latent_dim,
+                            device=device
+                        )
+                    
+                    # Define progress callback for this layer
+                    def layer_progress_callback(progress, status, detail):
+                        # Scale progress within this layer's portion
+                        layer_progress = layer_idx / num_layers + (progress / num_layers)
+                        # Add layer info to status messages
+                        layered_status = f"Layer {layer_idx+1}/{num_layers}: {status}"
+                        layered_detail = f"[Layer {layer_idx+1}] {detail}"
+                        update_ae_progress(layer_progress, layered_status, layered_detail)
+                    
+                    # Train the autoencoder
+                    train_history = train_sparse_autoencoder(
+                        model=model,
+                        train_data=train_layer_states,
+                        labels=train_labels if ae_supervised else None,
+                        val_data=test_layer_states,
+                        val_labels=test_labels if ae_supervised else None,
+                        batch_size=ae_batch_size,
+                        lr=ae_learning_rate,
+                        l1_weight=ae_l1_weight,
+                        num_epochs=ae_epochs,
+                        supervised=ae_supervised,
+                        lambda_supervised=ae_supervised_weight if ae_supervised else 1.0,
+                        progress_callback=layer_progress_callback
+                    )
+                    
+                    # Store results
+                    ae_results['autoencoders'].append(model)
+                    ae_results['histories'].append(train_history)
+                    
+                    # Create visualizations
+                    with ae_tabs[0]:
+                        st.subheader(f"Layer {layer_idx} Training Results")
+                        history_figs = plot_training_history(train_history)
+                        for fig in history_figs:
+                            st.pyplot(fig)
+                    
+                    with ae_tabs[1]:
+                        st.subheader(f"Layer {layer_idx} Feature Activations")
+                        vis_figs = visualize_feature_activations(
+                            model=model,
+                            data=test_layer_states,
+                            labels=test_labels
+                        )
+                        for fig in vis_figs:
+                            st.pyplot(fig)
+                    
+                    with ae_tabs[2]:
+                        st.subheader(f"Layer {layer_idx} Feature Weights")
+                        weights_fig = visualize_feature_weights(
+                            model=model,
+                            input_dim=input_dim,
+                            n_features_to_show=5
+                        )
+                        st.pyplot(weights_fig)
+                
+                # Generate layer comparison visualizations
+                update_ae_progress(0.95, "Generating layer comparison visualizations",
+                                  "Comparing autoencoder metrics across layers")
+                
+                with ae_tabs[3]:
+                    st.subheader("Layer-wise Comparison of Sparse Autoencoder Metrics")
+                    
+                    # Compare sparsity and other metrics across layers
+                    comparison_figs = compare_layers_sparsity(
+                        autoencoders=ae_results['autoencoders'],
+                        hidden_states=test_hidden_states,
+                        labels=test_labels
+                    )
+                    
+                    for fig in comparison_figs:
+                        st.pyplot(fig)
+                    
+                    # Compare feature correlation across layers
+                    st.subheader("Feature Correlation Between Layers")
+                    correlation_fig = compare_feature_correlation(
+                        autoencoders=ae_results['autoencoders'],
+                        hidden_states=test_hidden_states
+                    )
+                    
+                    st.pyplot(correlation_fig)
+                
+                # Complete the layer progress bar
+                layer_progress_bar.progress(1.0)
+                current_layer_info.success(f"**Complete** - Trained autoencoders for all {num_layers} layers")
+                
+                # Mark training complete
+                update_ae_progress(1.0, "Sparse Autoencoder training complete", 
+                                   f"Successfully trained autoencoders for all {num_layers} layers")
+                mark_complete(ae_status)
 
         # 5. Plot and display results
         with main_tabs[0]:
