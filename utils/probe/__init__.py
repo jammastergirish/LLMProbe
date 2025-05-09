@@ -10,3 +10,11 @@ from utils.probe.analysis import (
     plot_confusion_matrix,
     plot_probe_weights
 )
+from utils.probe.sparse_autoencoder import (
+    SparseAutoencoder,
+    train_sparse_autoencoder,
+    visualize_feature_grid,
+    visualize_feature_activations,
+    visualize_feature_attribution,
+    visualize_neuron_feature_connections
+)
