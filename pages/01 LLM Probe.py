@@ -440,6 +440,27 @@ if run_button:
         })
         stats_placeholder.table(stats_df)
 
+        # Get the number of layers
+        num_layers = get_num_layers(model)
+
+        # Save parameters to JSON file
+        parameters = {
+            "model_name": model_name,
+            "dataset": dataset_source,
+            "output_activation": output_layer,
+            "batch_size": batch_size,
+            "train_epochs": train_epochs,
+            "learning_rate": learning_rate,
+            "use_control_tasks": use_control_tasks,
+            "device": str(device),
+            "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "test_size": test_size,
+            "num_layers": num_layers,
+            "num_examples": len(examples)
+        }
+        save_json(parameters, os.path.join(run_folder, "parameters.json"))
+        add_log(f"Saved parameters to {os.path.join(run_folder, 'parameters.json')}")
+
         # 3. Extract embeddings with progress
         embedding_tracker.update(
             0, "Extracting embeddings for TRAIN set...", "Initializing")
@@ -488,6 +509,18 @@ if run_button:
 
             st.dataframe(acc_df)
 
+            # Save results to JSON file
+            results_to_save = {
+                "accuracies": results['accuracies'],
+                "test_losses": results['test_losses']
+            }
+            if use_control_tasks:
+                results_to_save["control_accuracies"] = results['control_accuracies']
+                results_to_save["selectivities"] = results['selectivities']
+
+            save_json(results_to_save, os.path.join(run_folder, "results.json"))
+            add_log(f"Saved results to {os.path.join(run_folder, 'results.json')}")
+
             # --- Calculate Alignment Strengths for all layers ---
             alignment_strengths, all_layers_mean_diff_activations, probe_weights = calculate_alignment_strengths(
                 test_hidden_states, test_labels, results, num_layers
@@ -515,6 +548,7 @@ if run_button:
                     fig_acc = plot_accuracy_by_layer(
                         results['accuracies'], model_name, dataset_source)
                     accuracy_plot.pyplot(fig_acc)
+                    save_graph(fig_acc, os.path.join(run_folder, "accuracy_plot.png"))
                     with st.expander("What does this chart show?", expanded=False):
                         st.markdown("""
                         This chart visualizes the performance of the linear truth probes across different layers of the model.
