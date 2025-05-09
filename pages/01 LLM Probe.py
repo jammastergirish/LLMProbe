@@ -122,7 +122,11 @@ dataset_options = ["truefalse", "truthfulqa", "boolq", "arithmetic", "fever", "c
 csv_dataset_options = [os.path.basename(f).replace('.csv', '') for f in csv_files]
 dataset_options.extend(csv_dataset_options)
 
-dataset_source = st.sidebar.selectbox(" 📊 Dataset", dataset_options)
+dataset_source = st.sidebar.selectbox(
+    " 📊 Dataset",
+    dataset_options,
+    help="Select an existing dataset or upload a custom dataset, or add your existing dataset to the datasets folder and it'll show up here automatically"
+)
 
 all_tf_splits = [
     "animals", "cities", "companies",
