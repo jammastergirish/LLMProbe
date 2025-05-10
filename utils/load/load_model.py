@@ -139,7 +139,7 @@ def get_hidden_states_batched(examples, model, tokenizer, model_name, output_lay
 
         # Update progress
         progress = batch_idx / len(examples)
-        progress_callback(progress, f"Processing batch {batch_idx//batch_size + 1}/{num_batches}",
+        progress_callback(progress, f"Processing {dataset_type} batch {batch_idx//batch_size + 1}/{num_batches}",
                           f"Examples {batch_idx+1}-{batch_end} of {len(examples)}")
 
         batch_texts = [ex["text"] for ex in batch]
@@ -261,7 +261,7 @@ def get_hidden_states_batched(examples, model, tokenizer, model_name, output_lay
     all_labels = torch.tensor(all_labels).to(device)
 
     # Update to 100%
-    progress_callback(1.0, f"Completed processing all {len(examples)} examples",
+    progress_callback(1.0, f"Completed processing all {dataset_type} {len(examples)} examples",
                       f"Created tensor of shape {all_hidden_states.shape}")
 
     # Return full tensor or specific layer

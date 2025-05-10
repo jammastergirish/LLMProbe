@@ -2,6 +2,7 @@ import os
 import json
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
 from datetime import datetime
 import re
 
@@ -68,6 +69,97 @@ def save_json(data, filepath):
 
     with open(filepath, "w") as f:
         json.dump(data, f, indent=4, default=convert)
+
+
+def save_representations(hidden_states, filepath):
+    """
+    Save the representations (hidden states) to a file.
+
+    Args:
+        hidden_states (torch.Tensor): The hidden states tensor from the model
+        filepath (str): The file path to save the representations to
+    """
+    # Convert tensor to numpy for saving
+    hidden_states_np = hidden_states.cpu().detach().numpy()
+
+    # Save the representations as NPY format (efficient binary numpy format)
+    np.save(filepath, hidden_states_np)
+
+    # Save metadata in a small JSON file
+    metadata_path = filepath.replace('.npy', '_metadata.json')
+    metadata = {
+        "shape": list(hidden_states_np.shape),
+        "dtype": str(hidden_states_np.dtype),
+        "min": float(hidden_states_np.min()),
+        "max": float(hidden_states_np.max()),
+        "mean": float(hidden_states_np.mean()),
+        "std": float(hidden_states_np.std())
+    }
+
+    with open(metadata_path, 'w') as f:
+        json.dump(metadata, f, indent=4)
+
+
+def save_probe_weights(probes, filepath):
+    """
+    Save the linear probe weights to a file.
+
+    Args:
+        probes (list): List of trained probe models
+        filepath (str): The file path to save the weights to
+    """
+    # Create a dict to store all probe weights
+    probes_data = {}
+
+    # Extract weights from each probe
+    for i, probe in enumerate(probes):
+        if hasattr(probe, 'linear') and hasattr(probe.linear, 'weight'):
+            weights = probe.linear.weight.cpu().detach().numpy()
+            bias = probe.linear.bias.cpu().detach().numpy() if hasattr(probe.linear, 'bias') else None
+
+            # Save individual layer weights as NPY files for efficient access
+            layer_dir = os.path.dirname(filepath)
+            layer_filename = f"layer_{i}_weights.npy"
+            layer_path = os.path.join(layer_dir, layer_filename)
+            np.save(layer_path, weights)
+
+            if bias is not None:
+                bias_filename = f"layer_{i}_bias.npy"
+                bias_path = os.path.join(layer_dir, bias_filename)
+                np.save(bias_path, bias)
+
+            # Store metadata for this layer
+            probes_data[f"layer_{i}"] = {
+                "weights_shape": list(weights.shape),
+                "weights_file": layer_filename,
+                "bias_file": bias_filename if bias is not None else None,
+                "weights_stats": {
+                    "min": float(weights.min()),
+                    "max": float(weights.max()),
+                    "mean": float(weights.mean()),
+                    "std": float(weights.std())
+                }
+            }
+
+            if bias is not None:
+                probes_data[f"layer_{i}"]["bias_stats"] = {
+                    "value": float(bias.item()) if bias.size == 1 else bias.tolist()
+                }
+
+    # Save the metadata as JSON
+    with open(filepath, 'w') as f:
+        json.dump(probes_data, f, indent=4)
+
+    # Also save the entire set of probes as a PyTorch model file if possible
+    try:
+        if all(hasattr(probe, 'state_dict') for probe in probes):
+            probes_state = [probe.state_dict() for probe in probes]
+            torch_path = filepath.replace('.json', '.pt')
+            torch.save(probes_state, torch_path)
+    except Exception as e:
+        # If saving as PyTorch model fails, we still have the NPY files
+        print(f"Note: Could not save probes as PyTorch model: {e}")
+        # This is not a critical error since we already saved the weights as NPY files
 
 
 def save_graph(fig, filepath):

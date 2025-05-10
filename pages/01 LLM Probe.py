@@ -12,7 +12,13 @@ from sklearn.model_selection import train_test_split
 import nest_asyncio
 
 from utils.models import model_options
-from utils.file_manager import create_run_folder, save_json, save_graph
+from utils.file_manager import (
+    create_run_folder,
+    save_json,
+    save_graph,
+    save_representations,
+    save_probe_weights
+)
 from utils.memory import estimate_memory_requirements
 from utils.load import (
     load_model_and_tokenizer,
@@ -626,6 +632,86 @@ if run_button:
 
             save_json(results_to_save, os.path.join(run_folder, "results.json"))
             add_log(f"Saved results to {os.path.join(run_folder, 'results.json')}")
+
+            # Save representations (hidden states) to file
+            train_representations_path = os.path.join(run_folder, "train_representations.npy")
+            test_representations_path = os.path.join(run_folder, "test_representations.npy")
+
+            save_representations(train_hidden_states, train_representations_path)
+            save_representations(test_hidden_states, test_representations_path)
+            add_log(f"Saved train representations to {train_representations_path}")
+            add_log(f"Saved test representations to {test_representations_path}")
+
+            # Save probe weights to file
+            probe_weights_path = os.path.join(run_folder, "probe_weights.json")
+            save_probe_weights(results['probes'], probe_weights_path)
+            add_log(f"Saved probe weights to {probe_weights_path}")
+
+            # --- Save per-layer visualizations for future access ---
+            add_log("Saving per-layer visualizations...")
+            for layer in range(num_layers):
+                # Create layer directory
+                layer_save_dir = os.path.join(run_folder, "layers", str(layer))
+                os.makedirs(layer_save_dir, exist_ok=True)
+
+                # Calculate activation differences for this layer
+                diff_activations, _, _ = calculate_mean_activation_difference(
+                    test_hidden_states, test_labels, layer
+                )
+
+                if diff_activations is not None:
+                    # Save activation differences plot
+                    fig_diff, ax_diff = plt.subplots(figsize=(12, 4))
+                    ax_diff.bar(range(len(diff_activations)), diff_activations)
+                    ax_diff.set_title(f"Mean Activation Difference (True - False) - Layer {layer}")
+                    ax_diff.set_xlabel("Neuron Index in Hidden Dimension")
+                    ax_diff.set_ylabel("Mean Activation Difference")
+                    ax_diff.grid(True, axis='y', linestyle='--', alpha=0.7)
+                    plt.tight_layout()
+                    save_graph(fig_diff, os.path.join(layer_save_dir, "activation_diff.png"))
+                    plt.close(fig_diff)
+
+                    # Get probe weights for this layer
+                    if layer < len(results['probes']):
+                        probe = results['probes'][layer]
+
+                        # Save probe weights plot
+                        from utils.probe.analysis import plot_probe_weights
+                        fig_weights = plot_probe_weights(probe, layer, run_folder)
+                        save_graph(fig_weights, os.path.join(layer_save_dir, "probe_weights.png"))
+                        plt.close(fig_weights)
+
+                        # Save truth direction projection
+                        from utils.probe.analysis import plot_truth_direction_projection
+                        fig_proj = plot_truth_direction_projection(
+                            test_hidden_states, test_labels, probe, layer, run_folder
+                        )
+                        save_graph(fig_proj, os.path.join(layer_save_dir, "truth_projection.png"))
+                        plt.close(fig_proj)
+
+                        # Save confusion matrix
+                        from utils.probe.analysis import calculate_confusion_matrix, plot_confusion_matrix
+                        metrics = calculate_confusion_matrix(
+                            test_hidden_states, test_labels, probe, layer
+                        )
+                        fig_conf = plot_confusion_matrix(metrics, layer, run_folder)
+                        save_graph(fig_conf, os.path.join(layer_save_dir, "confusion_matrix.png"))
+                        plt.close(fig_conf)
+
+                        # Save neuron alignment
+                        if hasattr(probe, 'linear') and hasattr(probe.linear, 'weight'):
+                            from utils.visualizations import plot_neuron_alignment
+                            probe_weights_for_alignment = probe.linear.weight[0].cpu().detach().numpy()
+                            fig_align = plot_neuron_alignment(
+                                diff_activations,
+                                probe_weights_for_alignment,
+                                layer,
+                                run_folder
+                            )
+                            save_graph(fig_align, os.path.join(layer_save_dir, "neuron_alignment.png"))
+                            plt.close(fig_align)
+
+            add_log("Per-layer visualizations saved successfully")
 
             # --- Calculate Alignment Strengths for all layers ---
             alignment_strengths, all_layers_mean_diff_activations, probe_weights = calculate_alignment_strengths(

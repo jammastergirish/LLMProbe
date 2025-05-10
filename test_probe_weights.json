@@ -1,0 +1,87 @@
+{
+    "layer_0": {
+        "weights_shape": [
+            1,
+            100
+        ],
+        "weights_file": "layer_0_weights.npy",
+        "bias_file": "layer_0_bias.npy",
+        "weights_stats": {
+            "min": -2.741697311401367,
+            "max": 2.1432061195373535,
+            "mean": 0.05319223552942276,
+            "std": 0.9864696860313416
+        },
+        "bias_stats": {
+            "value": 0.10000000149011612
+        }
+    },
+    "layer_1": {
+        "weights_shape": [
+            1,
+            100
+        ],
+        "weights_file": "layer_1_weights.npy",
+        "bias_file": "layer_1_bias.npy",
+        "weights_stats": {
+            "min": -1.9755680561065674,
+            "max": 3.054229259490967,
+            "mean": 0.15203970670700073,
+            "std": 0.9016281962394714
+        },
+        "bias_stats": {
+            "value": 0.10000000149011612
+        }
+    },
+    "layer_2": {
+        "weights_shape": [
+            1,
+            100
+        ],
+        "weights_file": "layer_2_weights.npy",
+        "bias_file": "layer_2_bias.npy",
+        "weights_stats": {
+            "min": -2.2236008644104004,
+            "max": 2.4937379360198975,
+            "mean": -0.080800361931324,
+            "std": 1.0495225191116333
+        },
+        "bias_stats": {
+            "value": 0.10000000149011612
+        }
+    },
+    "layer_3": {
+        "weights_shape": [
+            1,
+            100
+        ],
+        "weights_file": "layer_3_weights.npy",
+        "bias_file": "layer_3_bias.npy",
+        "weights_stats": {
+            "min": -2.4366495609283447,
+            "max": 2.1792030334472656,
+            "mean": -0.09049885720014572,
+            "std": 0.9985092878341675
+        },
+        "bias_stats": {
+            "value": 0.10000000149011612
+        }
+    },
+    "layer_4": {
+        "weights_shape": [
+            1,
+            100
+        ],
+        "weights_file": "layer_4_weights.npy",
+        "bias_file": "layer_4_bias.npy",
+        "weights_stats": {
+            "min": -2.4195804595947266,
+            "max": 2.543259382247925,
+            "mean": -0.013687030412256718,
+            "std": 1.0486081838607788
+        },
+        "bias_stats": {
+            "value": 0.10000000149011612
+        }
+    }
+}

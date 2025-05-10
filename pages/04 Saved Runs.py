@@ -30,7 +30,7 @@ if os.path.exists(SAVED_DATA_DIR):
 
                 # Create tabs for different sections
                 run_tabs = st.tabs(
-                    ["📋 Overview", "⚙️ Parameters", "📈 Visualizations", "📝 Log"])
+                    ["📋 Overview", "⚙️ Parameters", "📈 Visualizations", "📝 Log", "💾 Data Files"])
 
                 # Overview tab
                 with run_tabs[0]:
@@ -180,6 +180,225 @@ if os.path.exists(SAVED_DATA_DIR):
                             )
                     else:
                         st.info("No log file found for this run.")
+
+                # Data Files tab
+                with run_tabs[4]:
+                    st.subheader("Download Data Files")
+
+                    # Check for representations
+                    train_representations_path = os.path.join(run_folder, "train_representations.npy")
+                    test_representations_path = os.path.join(run_folder, "test_representations.npy")
+                    probe_weights_path = os.path.join(run_folder, "probe_weights.json")
+                    probe_weights_pt_path = os.path.join(run_folder, "probe_weights.pt")
+
+                    # Create columns for better layout
+                    col1, col2 = st.columns(2)
+
+                    with col1:
+                        st.markdown("### Representations")
+                        files_found = False
+
+                        # Train representations
+                        if os.path.exists(train_representations_path):
+                            files_found = True
+                            with open(train_representations_path, "rb") as f:
+                                st.download_button(
+                                    label="📥 Download Train Representations (NPY)",
+                                    data=f,
+                                    file_name="train_representations.npy",
+                                    mime="application/octet-stream"
+                                )
+
+                            # Check for metadata JSON
+                            train_meta_path = train_representations_path.replace('.npy', '_metadata.json')
+                            if os.path.exists(train_meta_path):
+                                with open(train_meta_path, "rb") as f:
+                                    st.download_button(
+                                        label="📥 Download Train Representations Metadata (JSON)",
+                                        data=f,
+                                        file_name="train_representations_metadata.json",
+                                        mime="application/json"
+                                    )
+
+                        # Test representations
+                        if os.path.exists(test_representations_path):
+                            files_found = True
+                            with open(test_representations_path, "rb") as f:
+                                st.download_button(
+                                    label="📥 Download Test Representations (NPY)",
+                                    data=f,
+                                    file_name="test_representations.npy",
+                                    mime="application/octet-stream"
+                                )
+
+                            # Check for metadata JSON
+                            test_meta_path = test_representations_path.replace('.npy', '_metadata.json')
+                            if os.path.exists(test_meta_path):
+                                with open(test_meta_path, "rb") as f:
+                                    st.download_button(
+                                        label="📥 Download Test Representations Metadata (JSON)",
+                                        data=f,
+                                        file_name="test_representations_metadata.json",
+                                        mime="application/json"
+                                    )
+
+                        if not files_found:
+                            st.info("No representation files found for this run.")
+
+                    with col2:
+                        st.markdown("### Linear Probe Weights")
+                        files_found = False
+
+                        # Probe weights JSON metadata
+                        if os.path.exists(probe_weights_path):
+                            files_found = True
+                            with open(probe_weights_path, "rb") as f:
+                                st.download_button(
+                                    label="📥 Download Probe Weights Metadata (JSON)",
+                                    data=f,
+                                    file_name="probe_weights.json",
+                                    mime="application/json"
+                                )
+
+                        # Probe weights PyTorch model
+                        if os.path.exists(probe_weights_pt_path):
+                            files_found = True
+                            with open(probe_weights_pt_path, "rb") as f:
+                                st.download_button(
+                                    label="📥 Download Probe Models (PyTorch)",
+                                    data=f,
+                                    file_name="probe_weights.pt",
+                                    mime="application/octet-stream"
+                                )
+
+                        # Look for individual layer weight files
+                        layer_weight_files = []
+                        for file in os.listdir(run_folder):
+                            if file.startswith("layer_") and file.endswith(".npy"):
+                                layer_weight_files.append(file)
+
+                        if layer_weight_files:
+                            files_found = True
+                            st.markdown("##### Layer-specific Weight Files")
+
+                            # Create a zip file of all layer weight files if there are many
+                            if len(layer_weight_files) > 5:
+                                import zipfile
+                                import io
+
+                                # Create in-memory zip file
+                                zip_buffer = io.BytesIO()
+                                with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                                    for file in layer_weight_files:
+                                        file_path = os.path.join(run_folder, file)
+                                        zipf.write(file_path, arcname=file)
+
+                                # Reset buffer position
+                                zip_buffer.seek(0)
+
+                                # Create download button for zip
+                                st.download_button(
+                                    label=f"📥 Download All Layer Weights ({len(layer_weight_files)} files)",
+                                    data=zip_buffer,
+                                    file_name="layer_weights.zip",
+                                    mime="application/zip"
+                                )
+                            else:
+                                # If only a few files, provide individual download buttons
+                                for file in sorted(layer_weight_files):
+                                    file_path = os.path.join(run_folder, file)
+                                    with open(file_path, "rb") as f:
+                                        st.download_button(
+                                            label=f"📥 {file}",
+                                            data=f,
+                                            file_name=file,
+                                            mime="application/octet-stream",
+                                            key=f"download_{file}"  # Unique key for each button
+                                        )
+
+                        if not files_found:
+                            st.info("No probe weight files found for this run.")
+
+                    # Display file information and help text
+                    with st.expander("ℹ️ About these data files"):
+                        st.markdown("""
+                        ### Understanding the Data Files
+
+                        #### Representations (Hidden States)
+
+                        The **representations** are the hidden states from each layer of the model for each input example. These are stored as NumPy arrays (.npy) format:
+
+                        - **Shape**: [num_examples, num_layers, hidden_dimension]
+                        - **Usage**: Can be used for further analysis, visualization, or to train new probes
+
+                        #### Linear Probe Weights
+
+                        The **linear probe weights** are the weights learned during the probe training to classify true/false statements:
+
+                        - **JSON file**: Contains metadata about weights and pointers to NPY files
+                        - **NPY files**: Each layer's weights as a NumPy array
+                        - **PyTorch file (.pt)**: Contains the full probe models in PyTorch format
+
+                        #### How to Use These Files
+
+                        ```python
+                        import numpy as np
+                        import torch
+                        import json
+
+                        # Load representations
+                        representations = np.load('test_representations.npy')
+
+                        # Load metadata
+                        with open('test_representations_metadata.json', 'r') as f:
+                            metadata = json.load(f)
+
+                        # Load individual layer weights
+                        layer_0_weights = np.load('layer_0_weights.npy')
+
+                        # Load all probe models (if available)
+                        probe_models = torch.load('probe_weights.pt')
+                        ```
+                        """)
+
+                    # Option to download all data as a single zip
+                    st.markdown("### Download Everything")
+
+                    # Check if there are any data files to download
+                    data_files = []
+                    for file in os.listdir(run_folder):
+                        if file.endswith(('.npy', '.json', '.pt')) and not file == "parameters.json" and not file == "results.json":
+                            data_files.append(file)
+
+                    if data_files:
+                        import zipfile
+                        import io
+
+                        # Create in-memory zip file
+                        zip_buffer = io.BytesIO()
+                        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                            for file in data_files:
+                                file_path = os.path.join(run_folder, file)
+                                zipf.write(file_path, arcname=file)
+
+                            # Also include parameters and results
+                            if os.path.exists(os.path.join(run_folder, "parameters.json")):
+                                zipf.write(os.path.join(run_folder, "parameters.json"), arcname="parameters.json")
+                            if os.path.exists(os.path.join(run_folder, "results.json")):
+                                zipf.write(os.path.join(run_folder, "results.json"), arcname="results.json")
+
+                        # Reset buffer position
+                        zip_buffer.seek(0)
+
+                        # Create download button for zip
+                        st.download_button(
+                            label=f"📥 Download All Data Files ({len(data_files)+2} files)",
+                            data=zip_buffer,
+                            file_name=f"{run_id}_all_data.zip",
+                            mime="application/zip"
+                        )
+                    else:
+                        st.info("No data files found for this run.")
     else:
         st.info("No saved runs found.")
 else:
