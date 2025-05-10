@@ -18,9 +18,3 @@ from utils.probe.sparse_autoencoder import (
     visualize_feature_attribution,
     visualize_neuron_feature_connections
 )
-from utils.probe.disentanglement import (
-    analyze_disentanglement,
-    plot_disentanglement_metrics,
-    plot_feature_importance_distribution,
-    plot_cumulative_accuracy
-)

@@ -38,8 +38,7 @@ from utils.probe import (
     visualize_feature_grid,
     visualize_feature_activations,
     visualize_feature_attribution,
-    visualize_neuron_feature_connections,
-    analyze_disentanglement
+    visualize_neuron_feature_connections
 )
 from utils.ui import (
     create_model_tracker,
@@ -302,7 +301,7 @@ with progress_col1:
     st.markdown('</div>', unsafe_allow_html=True)
 
     if use_sparse_autoencoder:
-        st.markdown('#### 🔬 Train Sparse Autoencoders')
+        st.markdown('#### 🔬 Train Sparse Autoencoder')
         sae_status = st.empty()
         sae_status.markdown(
             '<span class="status-idle">Waiting to start...</span>', unsafe_allow_html=True)
@@ -323,7 +322,7 @@ with progress_col2:
     st.markdown('</div>', unsafe_allow_html=True)
 
     # st.markdown('<div class="progress-container">', unsafe_allow_html=True)
-    st.markdown('#### 🧠 Train Probes')
+    st.markdown('#### 🧠 Train Probe')
     training_status = st.empty()
     training_status.markdown(
         '<span class="status-idle">Waiting to start...</span>', unsafe_allow_html=True)
@@ -775,322 +774,201 @@ if run_button:
 
                     # Create visualizations for SAE analysis tab with layer tabs
                     with main_tabs[1]:
-                        # Create main tabs for layer analysis and disentanglement analysis
-                        sae_main_tabs = st.tabs(["Layer Analysis", "Disentanglement Analysis"])
+                        # Create tabs for each layer
+                        layer_tabs = st.tabs([f"Layer {i}" for i in range(num_layers)])
 
-                        # Layer Analysis tab - original per-layer visualizations
-                        with sae_main_tabs[0]:
-                            # Create tabs for each layer
-                            layer_tabs = st.tabs([f"Layer {i}" for i in range(num_layers)])
+                        # For each layer tab, create the analysis content
+                        for layer_idx, layer_tab in enumerate(layer_tabs):
+                            with layer_tab:
+                                # Get the SAE model and data for this layer
+                                selected_sae = sae_models[layer_idx]
+                                selected_test_states = test_hidden_states[:, layer_idx, :]
 
-                            # For each layer tab, create the analysis content
-                            for layer_idx, layer_tab in enumerate(layer_tabs):
-                                with layer_tab:
-                                    # Get the SAE model and data for this layer
-                                    selected_sae = sae_models[layer_idx]
-                                    selected_test_states = test_hidden_states[:, layer_idx, :]
+                                # Create subtabs for this layer's analyses
+                                analysis_tabs = st.tabs(["Feature Visualization", "Activation Analysis",
+                                                      "Feature Attribution", "Neuron Analysis"])
 
-                                    # Create subtabs for this layer's analyses
-                                    analysis_tabs = st.tabs(["Feature Visualization", "Activation Analysis",
-                                                          "Feature Attribution", "Neuron Analysis"])
+                                # Feature Visualization tab
+                                with analysis_tabs[0]:
+                                    st.markdown("### Sparse Autoencoder Feature Visualization")
+                                    st.info("Generating feature visualization...")
+                                    fig_features = visualize_feature_grid(selected_sae)
+                                    st.pyplot(fig_features)
 
-                                    # Feature Visualization tab
-                                    with analysis_tabs[0]:
-                                        st.markdown("### Sparse Autoencoder Feature Visualization")
-                                        st.info("Generating feature visualization...")
-                                        fig_features = visualize_feature_grid(selected_sae)
-                                        st.pyplot(fig_features)
+                                    with st.expander("What does this visualization show?", expanded=False):
+                                        st.markdown("""
+                                        This visualization shows the features learned by the sparse autoencoder.
 
-                                        with st.expander("What does this visualization show?", expanded=False):
-                                            st.markdown("""
-                                            This visualization shows the features learned by the sparse autoencoder.
+                                        - Each row represents a feature (dictionary element) learned by the SAE
+                                        - Brighter colors indicate stronger positive weights, darker colors indicate stronger negative weights
+                                        - The features are sorted by their activation frequency, with the most activated features at the top
+                                        - This visualization helps identify what patterns each feature is detecting in the model's hidden states
+                                        - Features may correspond to specific concepts, syntactic patterns, or semantic properties
+                                        """)
 
-                                            - Each row represents a feature (dictionary element) learned by the SAE
-                                            - Brighter colors indicate stronger positive weights, darker colors indicate stronger negative weights
-                                            - The features are sorted by their activation frequency, with the most activated features at the top
-                                            - This visualization helps identify what patterns each feature is detecting in the model's hidden states
-                                            - Features may correspond to specific concepts, syntactic patterns, or semantic properties
-                                            """)
+                                    # Save the visualization
+                                    save_graph(fig_features, os.path.join(
+                                        run_folder, f"sae_features_layer_{layer_idx}.png"))
 
-                                        # Save the visualization
-                                        save_graph(fig_features, os.path.join(
-                                            run_folder, f"sae_features_layer_{layer_idx}.png"))
+                                # Activation Analysis tab
+                                with analysis_tabs[1]:
+                                    st.markdown("### Activation Patterns")
+                                    col1, col2 = st.columns(2)
 
-                                    # Activation Analysis tab
-                                    with analysis_tabs[1]:
-                                        st.markdown("### Activation Patterns")
-                                        col1, col2 = st.columns(2)
+                                    with col1:
+                                        st.info("Generating sparsity analysis...")
+                                    with col2:
+                                        st.info("Generating activation distribution...")
 
-                                        with col1:
-                                            st.info("Generating sparsity analysis...")
-                                        with col2:
-                                            st.info("Generating activation distribution...")
+                                    # Generate activation visualizations
+                                    fig_sparsity, fig_act_dist = visualize_feature_activations(
+                                        selected_sae, selected_test_states, test_labels)
 
-                                        # Generate activation visualizations
-                                        fig_sparsity, fig_act_dist = visualize_feature_activations(
+                                    col1.pyplot(fig_sparsity)
+                                    col2.pyplot(fig_act_dist)
+
+                                    # Show sparsity metrics
+                                    metrics = selected_sae.get_sparsity_metrics(selected_test_states)
+                                    st.markdown("### Sparsity Metrics")
+                                    metrics_df = pd.DataFrame({
+                                        'Metric': list(metrics.keys()),
+                                        'Value': list(metrics.values())
+                                    })
+                                    st.table(metrics_df)
+
+                                    with st.expander("What does this visualization show?", expanded=False):
+                                        st.markdown("""
+                                        These visualizations show activation patterns in the sparse autoencoder:
+
+                                        - **Feature Activation Frequency** (left): Shows how often each feature activates across the dataset
+                                          - Features with higher activation counts are more frequently used by the model
+                                          - A good sparse autoencoder should have a balanced distribution of activations
+                                          - Extremely inactive features may be "dead neurons" that aren't contributing to representations
+
+                                        - **Activation Distribution** (right): Shows the distribution of activation values
+                                          - In a sparse representation, most values should be near zero (high peak at center)
+                                          - The long tails represent the few strongly activated features for each input
+                                          - The L1 regularization during training encourages this sparsity pattern
+
+                                        The metrics table quantifies sparsity characteristics like average feature activations per sample
+                                        and the percent of features active at different thresholds.
+                                        """)
+
+                                    # Save visualizations
+                                    save_graph(fig_sparsity, os.path.join(
+                                        run_folder, f"sae_sparsity_layer_{layer_idx}.png"))
+                                    save_graph(fig_act_dist, os.path.join(
+                                        run_folder, f"sae_act_dist_layer_{layer_idx}.png"))
+
+                                # Feature Attribution tab
+                                with analysis_tabs[2]:
+                                    st.markdown("### Feature Attribution to Truth Values")
+                                    st.info("Generating truth attribution visualization...")
+
+                                    # Generate attribution visualization
+                                    if test_labels is not None:
+                                        # Standard feature attribution visualization
+                                        fig_attr = visualize_feature_attribution(
                                             selected_sae, selected_test_states, test_labels)
+                                        st.pyplot(fig_attr)
 
-                                        col1.pyplot(fig_sparsity)
-                                        col2.pyplot(fig_act_dist)
+                                        # For supervised SAEs, add additional classification performance metrics
+                                        if sae_supervised:
+                                            st.markdown("### Supervised Classification Performance")
 
-                                        # Show sparsity metrics
-                                        metrics = selected_sae.get_sparsity_metrics(selected_test_states)
-                                        st.markdown("### Sparsity Metrics")
-                                        metrics_df = pd.DataFrame({
-                                            'Metric': list(metrics.keys()),
-                                            'Value': list(metrics.values())
-                                        })
-                                        st.table(metrics_df)
+                                            # Get activation history if available
+                                            if layer_idx in sae_histories and "accuracy" in sae_histories[layer_idx]:
+                                                accuracy = sae_histories[layer_idx]["accuracy"][-1]
+                                                if "val_accuracy" in sae_histories[layer_idx]:
+                                                    val_accuracy = sae_histories[layer_idx]["val_accuracy"][-1]
+                                                else:
+                                                    val_accuracy = None
 
-                                        with st.expander("What does this visualization show?", expanded=False):
+                                                # Create metrics display
+                                                metrics_cols = st.columns(4)
+                                                metrics_cols[0].metric("Training Accuracy", f"{accuracy:.2%}")
+                                                if val_accuracy:
+                                                    metrics_cols[1].metric("Validation Accuracy", f"{val_accuracy:.2%}")
+
+                                                # Show training progress
+                                                if len(sae_histories[layer_idx]["accuracy"]) > 1:
+                                                    st.markdown("#### Training Progress")
+                                                    fig_training, ax = plt.subplots(figsize=(10, 5))
+                                                    epochs = range(1, len(sae_histories[layer_idx]["accuracy"]) + 1)
+                                                    ax.plot(epochs, sae_histories[layer_idx]["accuracy"], 'b-', label='Training Accuracy')
+
+                                                    if "val_accuracy" in sae_histories[layer_idx]:
+                                                        ax.plot(epochs, sae_histories[layer_idx]["val_accuracy"], 'r-', label='Validation Accuracy')
+
+                                                    ax.set_xlabel('Epoch')
+                                                    ax.set_ylabel('Accuracy')
+                                                    ax.set_title('Supervised SAE Classification Accuracy')
+                                                    ax.legend()
+                                                    ax.grid(True, linestyle='--', alpha=0.7)
+                                                    st.pyplot(fig_training)
+
+                                            # Add feature importance explanation
                                             st.markdown("""
-                                            These visualizations show activation patterns in the sparse autoencoder:
+                                            ### Feature Importance in Supervised Mode
 
-                                            - **Feature Activation Frequency** (left): Shows how often each feature activates across the dataset
-                                              - Features with higher activation counts are more frequently used by the model
-                                              - A good sparse autoencoder should have a balanced distribution of activations
-                                              - Extremely inactive features may be "dead neurons" that aren't contributing to representations
+                                            In supervised mode, the SAE learns features that are both good for reconstruction
+                                            and useful for classification. The feature attribution chart above shows how
+                                            strongly each learned feature correlates with the truth values.
 
-                                            - **Activation Distribution** (right): Shows the distribution of activation values
-                                              - In a sparse representation, most values should be near zero (high peak at center)
-                                              - The long tails represent the few strongly activated features for each input
-                                              - The L1 regularization during training encourages this sparsity pattern
-
-                                            The metrics table quantifies sparsity characteristics like average feature activations per sample
-                                            and the percent of features active at different thresholds.
+                                            Features with strong positive correlation (tall green bars) are most predictive
+                                            of TRUE statements, while features with strong negative correlation (tall red bars)
+                                            are most predictive of FALSE statements.
                                             """)
 
-                                        # Save visualizations
-                                        save_graph(fig_sparsity, os.path.join(
-                                            run_folder, f"sae_sparsity_layer_{layer_idx}.png"))
-                                        save_graph(fig_act_dist, os.path.join(
-                                            run_folder, f"sae_act_dist_layer_{layer_idx}.png"))
-
-                                    # Feature Attribution tab
-                                    with analysis_tabs[2]:
-                                        st.markdown("### Feature Attribution to Truth Values")
-                                        st.info("Generating truth attribution visualization...")
-
-                                        # Generate attribution visualization
-                                        if test_labels is not None:
-                                            # Standard feature attribution visualization
-                                            fig_attr = visualize_feature_attribution(
-                                                selected_sae, selected_test_states, test_labels)
-                                            st.pyplot(fig_attr)
-
-                                            # For supervised SAEs, add additional classification performance metrics
-                                            if sae_supervised:
-                                                st.markdown("### Supervised Classification Performance")
-
-                                                # Get activation history if available
-                                                if layer_idx in sae_histories and "accuracy" in sae_histories[layer_idx]:
-                                                    accuracy = sae_histories[layer_idx]["accuracy"][-1]
-                                                    if "val_accuracy" in sae_histories[layer_idx]:
-                                                        val_accuracy = sae_histories[layer_idx]["val_accuracy"][-1]
-                                                    else:
-                                                        val_accuracy = None
-
-                                                    # Create metrics display
-                                                    metrics_cols = st.columns(4)
-                                                    metrics_cols[0].metric("Training Accuracy", f"{accuracy:.2%}")
-                                                    if val_accuracy:
-                                                        metrics_cols[1].metric("Validation Accuracy", f"{val_accuracy:.2%}")
-
-                                                    # Show training progress
-                                                    if len(sae_histories[layer_idx]["accuracy"]) > 1:
-                                                        st.markdown("#### Training Progress")
-                                                        fig_training, ax = plt.subplots(figsize=(10, 5))
-                                                        epochs = range(1, len(sae_histories[layer_idx]["accuracy"]) + 1)
-                                                        ax.plot(epochs, sae_histories[layer_idx]["accuracy"], 'b-', label='Training Accuracy')
-
-                                                        if "val_accuracy" in sae_histories[layer_idx]:
-                                                            ax.plot(epochs, sae_histories[layer_idx]["val_accuracy"], 'r-', label='Validation Accuracy')
-
-                                                        ax.set_xlabel('Epoch')
-                                                        ax.set_ylabel('Accuracy')
-                                                        ax.set_title('Supervised SAE Classification Accuracy')
-                                                        ax.legend()
-                                                        ax.grid(True, linestyle='--', alpha=0.7)
-                                                        st.pyplot(fig_training)
-
-                                                # Add feature importance explanation
-                                                st.markdown("""
-                                                ### Feature Importance in Supervised Mode
-
-                                                In supervised mode, the SAE learns features that are both good for reconstruction
-                                                and useful for classification. The feature attribution chart above shows how
-                                                strongly each learned feature correlates with the truth values.
-
-                                                Features with strong positive correlation (tall green bars) are most predictive
-                                                of TRUE statements, while features with strong negative correlation (tall red bars)
-                                                are most predictive of FALSE statements.
-                                                """)
-
-                                            with st.expander("What does this visualization show?", expanded=False):
-                                                st.markdown("""
-                                                This visualization shows how each learned feature correlates with true/false values in the dataset:
-
-                                                - **X-axis**: Feature indices (sorted by correlation strength)
-                                                - **Y-axis**: Correlation coefficient between feature activation and the truth value
-                                                - **Positive correlation (bars going up)**: Features more active for TRUE statements
-                                                - **Negative correlation (bars going down)**: Features more active for FALSE statements
-                                                - **Features near zero**: Little correlation with truth value (neutral features)
-
-                                                This helps identify which specific sparse features are most predictive of truth or falsehood.
-                                                The most strongly correlated features (either positive or negative) may capture aspects of
-                                                the model's internal representation of truth versus falsehood.
-                                                """)
-
-                                            # Save visualization
-                                            save_graph(fig_attr, os.path.join(
-                                                run_folder, f"sae_attribution_layer_{layer_idx}.png"))
-                                        else:
-                                            st.error("No labels available for attribution analysis")
-
-                                    # Neuron Analysis tab
-                                    with analysis_tabs[3]:
-                                        st.markdown("### Neuron-Feature Connections")
-                                        st.info("Generating neuron-feature connections...")
-
-                                        # Generate neuron-feature connections visualization
-                                        fig_neurons = visualize_neuron_feature_connections(selected_sae)
-                                        st.pyplot(fig_neurons)
-
                                         with st.expander("What does this visualization show?", expanded=False):
                                             st.markdown("""
-                                            This visualization shows the relationship between original model neurons and the sparse features:
+                                            This visualization shows how each learned feature correlates with true/false values in the dataset:
 
-                                            - **Heatmap**: Shows which model neurons (columns) contribute most to each sparse feature (rows)
-                                            - **Bright spots**: Strong connections between specific neurons and features
-                                            - **Rows with similar patterns**: Features that rely on similar sets of neurons
-                                            - **Columns with strong activations**: Neurons that contribute to many different features
+                                            - **X-axis**: Feature indices (sorted by correlation strength)
+                                            - **Y-axis**: Correlation coefficient between feature activation and the truth value
+                                            - **Positive correlation (bars going up)**: Features more active for TRUE statements
+                                            - **Negative correlation (bars going down)**: Features more active for FALSE statements
+                                            - **Features near zero**: Little correlation with truth value (neutral features)
 
-                                            This helps identify:
-                                            1. Which model neurons are most important for specific sparse features
-                                            2. How different sparse features may be capturing related concepts
-                                            3. The distribution of information across the model's neurons
-                                            4. Potential redundancy or specialization in the feature representations
+                                            This helps identify which specific sparse features are most predictive of truth or falsehood.
+                                            The most strongly correlated features (either positive or negative) may capture aspects of
+                                            the model's internal representation of truth versus falsehood.
                                             """)
 
                                         # Save visualization
-                                        save_graph(fig_neurons, os.path.join(
-                                            run_folder, f"sae_neurons_layer_{layer_idx}.png"))
+                                        save_graph(fig_attr, os.path.join(
+                                            run_folder, f"sae_attribution_layer_{layer_idx}.png"))
+                                    else:
+                                        st.error("No labels available for attribution analysis")
 
-                        # Disentanglement Analysis tab - Compares truth encoding across layers
-                        with sae_main_tabs[1]:
-                            st.markdown("## Truth Disentanglement Analysis")
-                            st.markdown("""
-                            This analysis measures how cleanly truth information is encoded in the sparse features.
-                            Higher disentanglement means truth can be decoded from fewer features - suggesting a more
-                            specialized and efficient encoding of truth information.
-                            """)
+                                # Neuron Analysis tab
+                                with analysis_tabs[3]:
+                                    st.markdown("### Neuron-Feature Connections")
+                                    st.info("Generating neuron-feature connections...")
 
-                            st.info("Analyzing disentanglement across layers... (this may take a few moments)")
+                                    # Generate neuron-feature connections visualization
+                                    fig_neurons = visualize_neuron_feature_connections(selected_sae)
+                                    st.pyplot(fig_neurons)
 
-                            # Run disentanglement analysis
-                            disentanglement_results = analyze_disentanglement(
-                                sae_models=sae_models,
-                                hidden_states=test_hidden_states,
-                                labels=test_labels,
-                                device=device,
-                                epochs=train_epochs,  # Use same epochs as linear probes
-                                lr=learning_rate,     # Use same learning rate as linear probes
-                                target_percent=0.9    # Target 90% of full accuracy
-                            )
+                                    with st.expander("What does this visualization show?", expanded=False):
+                                        st.markdown("""
+                                        This visualization shows the relationship between original model neurons and the sparse features:
 
-                            # Display metrics across layers
-                            st.subheader("Disentanglement Metrics by Layer")
-                            metrics_df = disentanglement_results['metrics_df']
-                            st.dataframe(metrics_df.style.format({
-                                'Z Accuracy': '{:.2%}',
-                                'Gini Coefficient': '{:.4f}',
-                                'Min Features %': '{:.2%}'
-                            }))
+                                        - **Heatmap**: Shows which model neurons (columns) contribute most to each sparse feature (rows)
+                                        - **Bright spots**: Strong connections between specific neurons and features
+                                        - **Rows with similar patterns**: Features that rely on similar sets of neurons
+                                        - **Columns with strong activations**: Neurons that contribute to many different features
 
-                            # Plot metrics comparison
-                            fig_metrics = plot_disentanglement_metrics(metrics_df)
-                            st.pyplot(fig_metrics)
+                                        This helps identify:
+                                        1. Which model neurons are most important for specific sparse features
+                                        2. How different sparse features may be capturing related concepts
+                                        3. The distribution of information across the model's neurons
+                                        4. Potential redundancy or specialization in the feature representations
+                                        """)
 
-                            # Explanation of metrics
-                            with st.expander("Understanding Disentanglement Metrics", expanded=False):
-                                st.markdown("""
-                                ### Disentanglement Metrics Explained
-
-                                * **Z Accuracy**: How accurately truth can be predicted from the sparse features.
-                                  Higher means the sparse representation preserves truth information well.
-
-                                * **Gini Coefficient**: Measures inequality in feature importance (0-1 scale).
-                                  Higher values mean truth information is concentrated in fewer features,
-                                  suggesting better disentanglement.
-
-                                * **Min Features**: Number of features needed to reach 90% of full accuracy.
-                                  Lower means truth can be decoded from fewer features.
-
-                                * **Min Features %**: Percentage of total features needed (Min Features / Feature Dim).
-                                  Lower percentages indicate better disentanglement.
-
-                                ### Interpretation
-
-                                If truth information is highly disentangled, we would expect:
-                                1. High Gini Coefficient (closer to 1)
-                                2. Low Min Features percentage
-                                3. High Z Accuracy
-
-                                This would suggest the model represents truth in a small number of dedicated features,
-                                rather than distributing it across many features.
-                                """)
-
-                            # Layer detail selection
-                            selected_detail_layer = st.selectbox(
-                                "Select a layer for detailed analysis:",
-                                list(range(num_layers)),
-                                key="disentanglement_layer_selector"
-                            )
-
-                            # Display detailed plots for selected layer
-                            if selected_detail_layer in disentanglement_results:
-                                layer_results = disentanglement_results[selected_detail_layer]
-
-                                st.subheader(f"Layer {selected_detail_layer} Detailed Analysis")
-
-                                col1, col2 = st.columns(2)
-
-                                # Feature importance distribution
-                                with col1:
-                                    st.markdown("### Feature Importance Distribution")
-                                    fig_importance = plot_feature_importance_distribution(
-                                        layer_results['importance'],
-                                        title=f"Layer {selected_detail_layer} Feature Importance"
-                                    )
-                                    st.pyplot(fig_importance)
-
-                                # Cumulative accuracy plot
-                                with col2:
-                                    st.markdown("### Cumulative Accuracy")
-                                    fig_cumulative = plot_cumulative_accuracy(
-                                        layer_results['accuracies'],
-                                        layer_results['min_features'],
-                                        title=f"Layer {selected_detail_layer} Cumulative Accuracy"
-                                    )
-                                    st.pyplot(fig_cumulative)
-
-                                # Interpretation
-                                st.markdown(f"""
-                                ### Layer {selected_detail_layer} Summary
-
-                                * **Accuracy from sparse features:** {layer_results['z_accuracy']:.2%}
-                                * **Gini coefficient:** {layer_results['gini_coefficient']:.4f}
-                                * **Minimal feature set:** {layer_results['min_features']} features ({layer_results['min_features_percent']:.2%} of total)
-
-                                #### What this tells us:
-
-                                The feature importance distribution shows how "specialized" the features are for truth detection.
-                                A steep curve with few dominant features suggests strong disentanglement.
-
-                                The cumulative accuracy plot shows how accuracy increases as we add more features
-                                (in order of importance). A curve that rises quickly and plateaus suggests truth
-                                information is concentrated in a small number of features.
-                                """)
+                                    # Save visualization
+                                    save_graph(fig_neurons, os.path.join(
+                                        run_folder, f"sae_neurons_layer_{layer_idx}.png"))
 
                     # Save SAE results to JSON
                     sae_results = {}
