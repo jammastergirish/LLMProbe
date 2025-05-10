@@ -188,28 +188,6 @@ if use_sparse_autoencoder:
         sae_supervised = st.checkbox("Use supervised SAE training", value=False,
             help="When checked, the SAE will be trained with supervision from the dataset labels")
 
-        if sae_supervised:
-            st.markdown("### Supervised SAE Options")
-            sae_supervised_weight = st.slider(
-                "Supervision weight",
-                min_value=0.1,
-                max_value=1.0,
-                value=0.5,
-                help="Weight of the classification loss relative to reconstruction loss (higher values prioritize classification)"
-            )
-            sae_classification_threshold = st.slider(
-                "Classification threshold",
-                min_value=0.0,
-                max_value=1.0,
-                value=0.5,
-                help="Threshold for binary classification (default: 0.5)"
-            )
-            sae_feature_attribution = st.checkbox(
-                "Analyze feature attribution",
-                value=True,
-                help="Analyze which features are most important for classification"
-            )
-
 if is_decoder_only_model(model_name):
     output_layer = st.sidebar.selectbox(
         "🧠 Output Activation", ["resid_post", "attn_out", "mlp_out"])
@@ -588,24 +566,14 @@ if run_button:
 
         # Add SAE parameters if enabled
         if use_sparse_autoencoder:
-            sae_params = {
+            parameters.update({
                 "use_sparse_autoencoder": True,
                 "sae_dimensions": sae_dimensions,
                 "sae_training_epochs": sae_training_epochs,
                 "sae_learning_rate": sae_learning_rate,
                 "sae_l1_coefficient": sae_l1_coefficient,
                 "sae_supervised": sae_supervised
-            }
-
-            # Add supervised-specific parameters if enabled
-            if sae_supervised:
-                sae_params.update({
-                    "sae_supervised_weight": sae_supervised_weight,
-                    "sae_classification_threshold": sae_classification_threshold,
-                    "sae_feature_attribution": sae_feature_attribution
-                })
-
-            parameters.update(sae_params)
+            })
         else:
             parameters["use_sparse_autoencoder"] = False
 
@@ -725,31 +693,23 @@ if run_button:
                         ).to(device)
 
                         # Train the SAE model
-                        training_args = {
-                            "model": sae_model,
-                            "train_data": train_layer_states,
-                            "val_data": test_layer_states,
-                            "epochs": sae_training_epochs,
-                            "batch_size": batch_size,
-                            "learning_rate": sae_learning_rate,
-                            "progress_callback": lambda p, *args: update_sae_progress(
+                        sae_history = train_sparse_autoencoder(
+                            model=sae_model,
+                            train_data=train_layer_states,
+                            train_labels=train_labels if sae_supervised else None,
+                            val_data=test_layer_states,
+                            val_labels=test_labels if sae_supervised else None,
+                            epochs=sae_training_epochs,
+                            batch_size=batch_size,
+                            learning_rate=sae_learning_rate,
+                            progress_callback=lambda p, *args: update_sae_progress(
                                 sae_status, sae_progress_bar, sae_progress_text, sae_detail,
                                 layer_progress + (p * (1/num_layers)),
                                 f"Layer {layer_idx}/{num_layers-1}",
                                 add_log
                             ),
-                            "device": device
-                        }
-
-                        # Add supervised training parameters if applicable
-                        if sae_supervised:
-                            training_args.update({
-                                "train_labels": train_labels,
-                                "val_labels": test_labels,
-                                "supervised_weight": sae_supervised_weight
-                            })
-
-                        sae_history = train_sparse_autoencoder(**training_args)
+                            device=device
+                        )
 
                         # Store trained model and history
                         sae_models[layer_idx] = sae_model
@@ -867,58 +827,9 @@ if run_button:
 
                                     # Generate attribution visualization
                                     if test_labels is not None:
-                                        # Standard feature attribution visualization
                                         fig_attr = visualize_feature_attribution(
                                             selected_sae, selected_test_states, test_labels)
                                         st.pyplot(fig_attr)
-
-                                        # For supervised SAEs, add additional classification performance metrics
-                                        if sae_supervised:
-                                            st.markdown("### Supervised Classification Performance")
-
-                                            # Get activation history if available
-                                            if layer_idx in sae_histories and "accuracy" in sae_histories[layer_idx]:
-                                                accuracy = sae_histories[layer_idx]["accuracy"][-1]
-                                                if "val_accuracy" in sae_histories[layer_idx]:
-                                                    val_accuracy = sae_histories[layer_idx]["val_accuracy"][-1]
-                                                else:
-                                                    val_accuracy = None
-
-                                                # Create metrics display
-                                                metrics_cols = st.columns(4)
-                                                metrics_cols[0].metric("Training Accuracy", f"{accuracy:.2%}")
-                                                if val_accuracy:
-                                                    metrics_cols[1].metric("Validation Accuracy", f"{val_accuracy:.2%}")
-
-                                                # Show training progress
-                                                if len(sae_histories[layer_idx]["accuracy"]) > 1:
-                                                    st.markdown("#### Training Progress")
-                                                    fig_training, ax = plt.subplots(figsize=(10, 5))
-                                                    epochs = range(1, len(sae_histories[layer_idx]["accuracy"]) + 1)
-                                                    ax.plot(epochs, sae_histories[layer_idx]["accuracy"], 'b-', label='Training Accuracy')
-
-                                                    if "val_accuracy" in sae_histories[layer_idx]:
-                                                        ax.plot(epochs, sae_histories[layer_idx]["val_accuracy"], 'r-', label='Validation Accuracy')
-
-                                                    ax.set_xlabel('Epoch')
-                                                    ax.set_ylabel('Accuracy')
-                                                    ax.set_title('Supervised SAE Classification Accuracy')
-                                                    ax.legend()
-                                                    ax.grid(True, linestyle='--', alpha=0.7)
-                                                    st.pyplot(fig_training)
-
-                                            # Add feature importance explanation
-                                            st.markdown("""
-                                            ### Feature Importance in Supervised Mode
-
-                                            In supervised mode, the SAE learns features that are both good for reconstruction
-                                            and useful for classification. The feature attribution chart above shows how
-                                            strongly each learned feature correlates with the truth values.
-
-                                            Features with strong positive correlation (tall green bars) are most predictive
-                                            of TRUE statements, while features with strong negative correlation (tall red bars)
-                                            are most predictive of FALSE statements.
-                                            """)
 
                                         with st.expander("What does this visualization show?", expanded=False):
                                             st.markdown("""
