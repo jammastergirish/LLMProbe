@@ -29,87 +29,26 @@ def load_model_and_tokenizer(model_name, progress_callback, device=torch.device(
 
     from transformers import AutoTokenizer, AutoModel, AutoModelForCausalLM
 
-    # Check for problematic models - specifically the 3B variant
-    skip_transformer_lens = False
-    if "llama-3.2-3b" in model_name.lower() or "llama-3-2-3b" in model_name.lower():
-        skip_transformer_lens = True
-        progress_callback(0.2, "Detected Llama 3.2-3B model",
-                          "Using HuggingFace directly - skipping TransformerLens for compatibility")
-
     # Load tokenizer first (universal approach)
     progress_callback(0.3, "Loading tokenizer...",
                       f"Fetching tokenizer for {model_name}")
 
-    tokenizer = None
-    # Try multiple tokenizer loading strategies in sequence
-    tokenizer_errors = []
-
-    # Strategy 1: Standard loading
     try:
         tokenizer = AutoTokenizer.from_pretrained(
             model_name, trust_remote_code=True)
     except Exception as e:
-        tokenizer_errors.append(f"Standard loading: {str(e)}")
         progress_callback(0.35, f"Tokenizer warning: {str(e)}",
                           "Trying alternative tokenizer approach...")
-
-        # Strategy 2: Slow tokenizer
         try:
+            # Some models need trust_remote_code=True
             tokenizer = AutoTokenizer.from_pretrained(
                 model_name,
-                use_fast=False,
                 trust_remote_code=True
             )
         except Exception as e2:
-            tokenizer_errors.append(f"Slow tokenizer: {str(e2)}")
             progress_callback(0.4, f"Second tokenizer attempt failed: {str(e2)}",
-                              "Trying more specialized approach...")
-
-            # Strategy 3: Special flags for problematic models
-            try:
-                tokenizer = AutoTokenizer.from_pretrained(
-                    model_name,
-                    use_fast=False,
-                    trust_remote_code=True,
-                    legacy=True
-                )
-            except Exception as e3:
-                tokenizer_errors.append(f"Legacy approach: {str(e3)}")
-                progress_callback(0.45, f"Third tokenizer attempt failed",
-                                  "Trying one final approach...")
-
-                # Strategy 4: Last resort for extreme cases
-                try:
-                    # For Llama 3.2-3B specifically, try the most compatible approach
-                    if "llama-3.2-3b" in model_name.lower() or "llama-3-2-3b" in model_name.lower():
-                        # Sometimes using the 1B tokenizer works
-                        alt_model_name = model_name.replace(
-                            "-3b", "-1b").replace("3B", "1B")
-                        progress_callback(0.47, f"Attempting to use {alt_model_name} tokenizer",
-                                          "This may help with compatibility issues")
-                        tokenizer = AutoTokenizer.from_pretrained(
-                            alt_model_name,
-                            use_fast=False,
-                            trust_remote_code=True
-                        )
-                    else:
-                        # Try with specific revision for other models
-                        tokenizer = AutoTokenizer.from_pretrained(
-                            model_name,
-                            use_fast=False,
-                            trust_remote_code=True,
-                            revision="main"
-                        )
-                except Exception as e4:
-                    all_errors = "\n".join(
-                        tokenizer_errors + [f"Final attempt: {str(e4)}"])
-                    error_msg = f"All tokenizer loading attempts failed. Errors:\n{all_errors}"
-                    progress_callback(
-                        0.5, error_msg, "Critical error - cannot continue")
-                    raise RuntimeError(error_msg)
-
-    if tokenizer is None:
-        raise RuntimeError("Failed to initialize tokenizer")
+                              "Will try to load model directly")
+            raise e2
 
     progress_callback(0.5, "Configuring tokenizer settings...",
                       "Setting padding token and padding side")
@@ -118,8 +57,8 @@ def load_model_and_tokenizer(model_name, progress_callback, device=torch.device(
     tokenizer.padding_side = "right" if not is_decoder_only_model(
         model_name) else "left"
 
-    # Attempt TransformerLens loading if appropriate
-    if is_decoder_only_model(model_name) and not skip_transformer_lens:
+    if is_decoder_only_model(model_name):
+        # Try TransformerLens first
         try:
             progress_callback(0.6, "Detected decoder-only model architecture",
                               f"Attempting to load {model_name} with TransformerLens")
@@ -128,15 +67,34 @@ def load_model_and_tokenizer(model_name, progress_callback, device=torch.device(
             import transformer_lens
             from transformer_lens import HookedTransformer
 
-            # Standard loading for most models
-            model = HookedTransformer.from_pretrained(
-                model_name,
-                device=device,
-                fold_ln=False,  # Helps with some models
-                center_writing_weights=False,
-                center_unembed=False,
-                tokenizer=tokenizer  # Pass the tokenizer explicitly
-            )
+            # For Llama models, use the standard loading with HF first
+            if "llama" in model_name.lower():
+                progress_callback(0.65, "Llama model detected",
+                                  "Using specialized loading approach for Llama models")
+
+                # Load the HF model first to ensure tokenizer compatibility
+                temp_model = AutoModelForCausalLM.from_pretrained(
+                    model_name,
+                    torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                    low_cpu_mem_usage=True,
+                    trust_remote_code=True
+                )
+
+                # Now try HookedTransformer with specific config
+                model = HookedTransformer.from_pretrained(
+                    model_name,
+                    device=device,
+                    fold_ln=False,  # Helps with some models
+                    center_writing_weights=False,
+                    center_unembed=False,
+                    tokenizer=tokenizer  # Pass the tokenizer explicitly
+                )
+            else:
+                # For other decoder models, try direct loading
+                model = HookedTransformer.from_pretrained(
+                    model_name,
+                    device=device
+                )
 
             # Report model statistics
             n_layers = model.cfg.n_layers
@@ -207,38 +165,9 @@ def get_hidden_states_batched(examples, model, tokenizer, model_name, output_lay
         n_layers = model.cfg.n_layers
         d_model = model.cfg.d_model
     else:
-        # For HuggingFace models, handle different model configs
-        if hasattr(model, "config"):
-            if hasattr(model.config, "num_hidden_layers"):
-                n_layers = model.config.num_hidden_layers + \
-                    (1 if not is_transformerlens else 0)
-            elif hasattr(model.config, "n_layers"):
-                n_layers = model.config.n_layers
-            elif hasattr(model.config, "num_layers"):
-                n_layers = model.config.num_layers
-            else:
-                # Default value if we can't determine
-                n_layers = 12
-                warnings.warn(
-                    f"Could not determine number of layers, using default: {n_layers}")
-
-            if hasattr(model.config, "hidden_size"):
-                d_model = model.config.hidden_size
-            elif hasattr(model.config, "d_model"):
-                d_model = model.config.d_model
-            elif hasattr(model.config, "n_embd"):
-                d_model = model.config.n_embd
-            else:
-                # Default value if we can't determine
-                d_model = 768
-                warnings.warn(
-                    f"Could not determine hidden size, using default: {d_model}")
-        else:
-            # Fallback defaults
-            n_layers = 12
-            d_model = 768
-            warnings.warn(
-                "Model has no config attribute, using default dimensions")
+        n_layers = getattr(model.config, "num_hidden_layers",
+                           12) + (1 if not is_transformerlens else 0)
+        d_model = getattr(model.config, "hidden_size", 768)
 
     # Process in batches
     num_batches = math.ceil(len(examples) / batch_size)
@@ -448,4 +377,3 @@ def get_hidden_states_batched(examples, model, tokenizer, model_name, output_lay
         return all_hidden_states[:, return_layer, :], all_labels
     else:
         return all_hidden_states, all_labels
- l
