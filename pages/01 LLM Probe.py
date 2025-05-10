@@ -224,7 +224,6 @@ with col2:
     <div class="section-header">Statistics</div>
     """, unsafe_allow_html=True)
 
-    # Create placeholder for stats that will be filled later
     stats_placeholder = st.empty()
     stats_placeholder.info("Statistics will appear when analysis runs")
     with st.expander("📚 Understanding Memory Requirements"):
@@ -242,7 +241,6 @@ with col2:
 progress_col1, progress_col2 = st.columns(2)
 
 with progress_col1:
-    # st.markdown('<div class="progress-container">', unsafe_allow_html=True)
     st.markdown('#### 📚 Load Model')
     model_status = st.empty()
     model_status.markdown(
@@ -252,7 +250,6 @@ with progress_col1:
     model_detail = st.empty()
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # st.markdown('<div class="progress-container">', unsafe_allow_html=True)
     st.markdown('#### 🔍 Create Representations')
     embedding_status = st.empty()
     embedding_status.markdown(
@@ -263,7 +260,6 @@ with progress_col1:
     st.markdown('</div>', unsafe_allow_html=True)
 
 with progress_col2:
-    # st.markdown('<div class="progress-container">', unsafe_allow_html=True)
     st.markdown('#### 📊 Load Dataset')
     dataset_status = st.empty()
     dataset_status.markdown(
@@ -273,7 +269,6 @@ with progress_col2:
     dataset_detail = st.empty()
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # st.markdown('<div class="progress-container">', unsafe_allow_html=True)
     st.markdown('#### 🧠 Train Probe')
     training_status = st.empty()
     training_status.markdown(
@@ -283,7 +278,6 @@ with progress_col2:
     training_detail = st.empty()
     st.markdown('</div>', unsafe_allow_html=True)
 
-# Log area
 with st.expander("📋 Detailed Log", expanded=False):
     log_container = st.container()
     log_placeholder = log_container.empty()
@@ -293,8 +287,7 @@ with st.expander("📋 Detailed Log", expanded=False):
         timestamp = datetime.now().strftime("%H:%M:%S")
         log_text.append(f"[{timestamp}] {message}")
         log_placeholder.code("\n".join(log_text), language="")
-
-# Results area
+        
 st.markdown("""
 <div class="section-header">Results</div>
 """, unsafe_allow_html=True)
@@ -306,11 +299,12 @@ main_tabs = st.tabs(
 # Setup Probe Analysis Sub-Tabs and placeholders
 with main_tabs[0]:
     probe_tabs = st.tabs(["Accuracy Analysis", "PCA Visualization",
-                          "Truth Direction Analysis", "Data View"])
+                          "Truth Direction Analysis", "Data View", "Alignment Strength"])
     accuracy_tab_container = probe_tabs[0]
     pca_tab_container = probe_tabs[1]
     projection_tab_container = probe_tabs[2]
     data_tab_container = probe_tabs[3]
+    alignment_tab_container = probe_tabs[4]
 
     # Define empty containers within the sub-tabs for later population
     with accuracy_tab_container:
@@ -323,6 +317,9 @@ with main_tabs[0]:
     with data_tab_container:
         # data_display = st.empty() # Content will be added directly later
         pass  # Data view content is complex, added dynamically
+    with alignment_tab_container:
+        alignment_strength_plot = st.empty()
+        alignment_explanation = st.empty()
 
 # Placeholder for the second main tab
 with main_tabs[1]:
@@ -606,27 +603,30 @@ if run_button:
                         (Control tasks were not run, so selectivity and control accuracy are not displayed).
                         """)
 
-                # Display Alignment Strength Plot
+
+            # Restore Alignment Strength Tab Content
+            with alignment_tab_container:
+                alignment_strength_plot.info("Generating Alignment Strength visualization...")
                 if alignment_strengths:
                     fig_align_strength = plot_alignment_strength_by_layer(
                         alignment_strengths, model_name, dataset_source, run_folder
                     )
-                    st.pyplot(fig_align_strength)
-                    with st.expander("What does the Alignment Strength chart show?", expanded=False):
-                        st.markdown("""
-                        This chart displays the **Alignment Strength** for each layer, measured as the Pearson correlation coefficient between two sets of values for all neurons in that layer:
-                        1.  **Mean Activation Difference (True - False):** How much each neuron's average activation changes when the model processes TRUE statements versus FALSE statements.
-                        2.  **Probe Weight:** The weight assigned to each neuron by the trained linear probe for that layer.
+                    alignment_strength_plot.pyplot(fig_align_strength)
+                    save_graph(fig_align_strength, os.path.join(run_folder, "alignment_strength_plot.png"))
+                    alignment_explanation.markdown("""
+                    This chart displays the **Alignment Strength** for each layer, measured as the Pearson correlation coefficient between two sets of values for all neurons in that layer:
+                    1.  **Mean Activation Difference (True - False):** How much each neuron's average activation changes when the model processes TRUE statements versus FALSE statements.
+                    2.  **Probe Weight:** The weight assigned to each neuron by the trained linear probe for that layer.
 
-                        **Interpretation:**
-                        -   **Correlation near +1:** Strong positive alignment. Neurons that are naturally more active for TRUE statements are also given positive (excitatory for TRUE) weights by the probe, and neurons more active for FALSE get negative weights. The probe is leveraging a clear, direct signal.
-                        -   **Correlation near -1:** Strong negative alignment. Neurons more active for TRUE are given negative weights by the probe (and vice versa). This suggests the probe is learning an inverse relationship or relying on suppression of truth-aligned neurons to detect falsehood (or vice versa).
-                        -   **Correlation near 0:** Weak or no linear alignment. The probe's weights don't show a strong linear relationship with the neurons' natural True/False activation differences. The probe might be learning more complex, non-linear patterns, or the truth signal might be weak/diffuse in that layer with respect to these two measures.
+                    **Interpretation:**
+                    -   **Correlation near +1:** Strong positive alignment. Neurons that are naturally more active for TRUE statements are also given positive (excitatory for TRUE) weights by the probe, and neurons more active for FALSE get negative weights. The probe is leveraging a clear, direct signal.
+                    -   **Correlation near -1:** Strong negative alignment. Neurons more active for TRUE are given negative weights by the probe (and vice versa). This suggests the probe is learning an inverse relationship or relying on suppression of truth-aligned neurons to detect falsehood (or vice versa).
+                    -   **Correlation near 0:** Weak or no linear alignment. The probe's weights don't show a strong linear relationship with the neurons' natural True/False activation differences. The probe might be learning more complex, non-linear patterns, or the truth signal might be weak/diffuse in that layer with respect to these two measures.
 
-                        This plot helps understand how directly the probe's learned strategy aligns with the raw activation patterns related to truth at each layer.
-                        """)
+                    This plot helps understand how directly the probe's learned strategy aligns with the raw activation patterns related to truth at each layer.
+                    """)
                 else:
-                    st.info("Alignment strength data could not be computed.")
+                    alignment_strength_plot.info("Alignment strength data could not be computed.")
 
             # Restore PCA Tab Content
             with pca_tab_container:
