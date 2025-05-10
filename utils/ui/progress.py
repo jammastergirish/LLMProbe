@@ -118,3 +118,19 @@ def create_ui_print_function(original_print, progress_tracker):
                 last_update_time[0] = current_time
 
     return ui_print
+
+# Create a custom print function that only logs to console and log file, but not the UI detail
+def create_console_print_function(original_print, log_function):
+    """Create a custom print function that outputs to console and log file but not the UI detail pane"""
+
+    def console_print(*args, **kwargs):
+        # Call the original print function for console output
+        original_print(*args, **kwargs)
+
+        # Add to log file if we have a log function
+        if log_function:
+            # Convert args to string
+            output_text = " ".join(map(str, args))
+            log_function(output_text)
+
+    return console_print

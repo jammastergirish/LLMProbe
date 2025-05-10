@@ -59,7 +59,8 @@ from utils.ui import (
     create_embedding_tracker,
     create_training_tracker,
     create_autoencoder_tracker,
-    create_ui_print_function
+    create_ui_print_function,
+    create_console_print_function
 )
 from utils.visualizations import (
     plot_accuracy_by_layer,
@@ -205,6 +206,8 @@ with st.sidebar.expander("⚙️ Linear Probe Options"):
     batch_size = st.number_input("Batch size", min_value=1, max_value=64, value=16,
                                  help="Larger batches are faster but use more memory. Use smaller values for large models.")
 
+    use_control_tasks = st.checkbox("Add control tasks (shuffled labels)", value=True)
+
 use_sparse_autoencoder = st.sidebar.checkbox("Sparse Autoencoders", value=True)
 
 # Sparse autoencoder specific options (only show if selected)
@@ -273,8 +276,6 @@ if use_sparse_autoencoder:
                 value=1.0,
                 step=0.1,
                 help="Weight for classification loss. Higher values prioritize classification over reconstruction.")
-
-use_control_tasks = st.sidebar.checkbox("Add control tasks (shuffled labels)", value=True)
 
 if is_decoder_only_model(model_name):
     output_layer = st.sidebar.selectbox(
@@ -373,7 +374,6 @@ with progress_col2:
         '<span class="status-idle">Waiting to start...</span>', unsafe_allow_html=True)
     training_progress_bar = st.progress(0)
     training_progress_text = st.empty()
-    st.markdown('##### Training Details')
     training_detail = st.empty()
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -385,7 +385,6 @@ if 'use_sparse_autoencoder' in locals() and use_sparse_autoencoder:
         '<span class="status-idle">Waiting to start...</span>', unsafe_allow_html=True)
     autoencoder_progress_bar = st.progress(0)
     autoencoder_progress_text = st.empty()
-    st.markdown('##### Training Details')
     autoencoder_detail = st.empty()
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -728,13 +727,13 @@ if run_button:
         if use_linear_probe:
             training_tracker.update(0, "Training linear probes...", "Initializing")
 
-            # Ensure the training_detail container is visible and clear
-            training_detail.empty()
+            # Show minimal UI details - only progress
+            training_detail.text("Training in progress... See Detailed Log for full output.")
 
-            # Override the print function for probe training to capture output to UI
+            # Override the print function for probe training to log output to console and log file but not UI
             import builtins
             original_print = builtins.print
-            builtins.print = create_ui_print_function(original_print, training_tracker)
+            builtins.print = create_console_print_function(original_print, add_log)
 
             try:
                 probe_results = train_and_evaluate_model(
@@ -758,13 +757,13 @@ if run_button:
             # Determine if using supervised or unsupervised autoencoders
             is_supervised = autoencoder_type == "Supervised"
 
-            # Ensure the autoencoder_detail container is visible and clear
-            autoencoder_detail.empty()
+            # Show minimal UI details - only progress
+            autoencoder_detail.text("Training in progress... See Detailed Log for full output.")
 
-            # Override the print function for autoencoder training to capture output to UI
+            # Override the print function for autoencoder training to log output to console and log file but not UI
             import builtins
             original_print = builtins.print
-            builtins.print = create_ui_print_function(original_print, autoencoder_tracker)
+            builtins.print = create_console_print_function(original_print, add_log)
 
             try:
                 autoencoder_results = train_and_evaluate_autoencoders(

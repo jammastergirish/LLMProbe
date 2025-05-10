@@ -5,5 +5,6 @@ from utils.ui.progress import (
     create_embedding_tracker,
     create_training_tracker,
     create_autoencoder_tracker,
-    create_ui_print_function
+    create_ui_print_function,
+    create_console_print_function
 )
