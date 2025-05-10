@@ -76,36 +76,113 @@ if os.path.exists(SAVED_DATA_DIR):
 
                 # Visualizations tab
                 with run_tabs[2]:
-                    st.subheader("Analysis Visualizations")
+                    # Create sub-tabs for different types of visualizations
+                    viz_tabs = st.tabs(["Linear Probe Results", "Sparse Autoencoder Results"])
 
-                    # Accuracy plot
-                    accuracy_plot_path = os.path.join(
-                        run_folder, "accuracy_plot.png")
-                    if os.path.exists(accuracy_plot_path):
-                        st.caption("📈 ACCURACY PLOT")
-                        st.image(accuracy_plot_path, use_container_width=True)
+                    # Linear Probe Visualizations
+                    with viz_tabs[0]:
+                        st.subheader("Linear Probe Analysis")
 
-                    # Alignment Strength plot
-                    alignment_strength_plot_path = os.path.join(
-                        run_folder, "alignment_strength_plot.png")
-                    if os.path.exists(alignment_strength_plot_path):
-                        st.caption("🔗 ALIGNMENT STRENGTH BY LAYER")
-                        st.image(alignment_strength_plot_path,
-                                 use_container_width=True)
+                        # Accuracy plot
+                        accuracy_plot_path = os.path.join(
+                            run_folder, "accuracy_plot.png")
+                        if os.path.exists(accuracy_plot_path):
+                            st.caption("📈 ACCURACY PLOT")
+                            st.image(accuracy_plot_path, use_container_width=True)
 
-                    # PCA plot
-                    pca_plot_path = os.path.join(run_folder, "pca_plot.png")
-                    if os.path.exists(pca_plot_path):
-                        st.caption("🔍 PCA VISUALIZATION")
-                        st.image(pca_plot_path, use_container_width=True)
+                        # Alignment Strength plot
+                        alignment_strength_plot_path = os.path.join(
+                            run_folder, "alignment_strength_plot.png")
+                        if os.path.exists(alignment_strength_plot_path):
+                            st.caption("🔗 ALIGNMENT STRENGTH BY LAYER")
+                            st.image(alignment_strength_plot_path,
+                                     use_container_width=True)
 
-                    # Truth direction plot
-                    truth_direction_plot_path = os.path.join(
-                        run_folder, "proj_plot.png")
-                    if os.path.exists(truth_direction_plot_path):
-                        st.caption("🧭 TRUTH DIRECTION PLOT")
-                        st.image(truth_direction_plot_path,
-                                 use_container_width=True)
+                        # PCA plot
+                        pca_plot_path = os.path.join(run_folder, "pca_plot.png")
+                        if os.path.exists(pca_plot_path):
+                            st.caption("🔍 PCA VISUALIZATION")
+                            st.image(pca_plot_path, use_container_width=True)
+
+                        # Truth direction plot
+                        truth_direction_plot_path = os.path.join(
+                            run_folder, "proj_plot.png")
+                        if os.path.exists(truth_direction_plot_path):
+                            st.caption("🧭 TRUTH DIRECTION PLOT")
+                            st.image(truth_direction_plot_path,
+                                     use_container_width=True)
+
+                    # Sparse Autoencoder Visualizations
+                    with viz_tabs[1]:
+                        st.subheader("Sparse Autoencoder Analysis")
+
+                        # Check if this run has autoencoder results
+                        autoencoder_stats_path = os.path.join(run_folder, "autoencoder_stats.json")
+                        sparsity_plot_path = os.path.join(run_folder, "sparsity_plot.png")
+                        l1_sparsity_plot_path = os.path.join(run_folder, "l1_sparsity_plot.png")
+                        reconstruction_error_plot_path = os.path.join(run_folder, "reconstruction_error_plot.png")
+
+                        if os.path.exists(autoencoder_stats_path):
+                            # Load and display autoencoder stats
+                            with open(autoencoder_stats_path) as f:
+                                autoencoder_stats = json.load(f)
+
+                            # Display basic info
+                            st.caption("🔧 AUTOENCODER CONFIGURATION")
+                            config_cols = st.columns(3)
+                            with config_cols[0]:
+                                st.metric("L1 Coefficient", autoencoder_stats.get("l1_coefficient", "N/A"))
+                                st.metric("Type", autoencoder_stats.get("autoencoder_type", "N/A"))
+                            with config_cols[1]:
+                                bottleneck = autoencoder_stats.get("bottleneck_dim", "N/A")
+                                bottleneck_display = "Same as input" if bottleneck == 0 else bottleneck
+                                st.metric("Hidden Dimension", bottleneck_display)
+                                st.metric("Tied Weights", "Yes" if autoencoder_stats.get("tied_weights", False) else "No")
+                            with config_cols[2]:
+                                st.metric("Epochs", autoencoder_stats.get("training_epochs", "N/A"))
+                                st.metric("Learning Rate", autoencoder_stats.get("learning_rate", "N/A"))
+
+                            # Display sparsity plot
+                            if os.path.exists(sparsity_plot_path):
+                                st.caption("📊 SPARSITY PERCENTAGE BY LAYER")
+                                st.image(sparsity_plot_path, use_container_width=True)
+
+                            # Display L1 sparsity plot
+                            if os.path.exists(l1_sparsity_plot_path):
+                                st.caption("📉 L1 SPARSITY MEASURE BY LAYER")
+                                st.image(l1_sparsity_plot_path, use_container_width=True)
+
+                            # Display reconstruction error plot
+                            if os.path.exists(reconstruction_error_plot_path):
+                                st.caption("🔄 RECONSTRUCTION ERROR BY LAYER")
+                                st.image(reconstruction_error_plot_path, use_container_width=True)
+
+                            # Create expandable section to show raw data
+                            with st.expander("View Raw Sparsity and Reconstruction Data"):
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    st.subheader("Sparsity Values")
+                                    if "sparsity_values" in autoencoder_stats:
+                                        sparsity_df = pd.DataFrame({
+                                            "Layer": range(len(autoencoder_stats["sparsity_values"])),
+                                            "L1 Sparsity": autoencoder_stats["sparsity_values"]
+                                        })
+                                        st.dataframe(sparsity_df)
+                                    else:
+                                        st.info("No sparsity values available")
+
+                                with col2:
+                                    st.subheader("Reconstruction Errors")
+                                    if "reconstruction_errors" in autoencoder_stats:
+                                        recon_df = pd.DataFrame({
+                                            "Layer": range(len(autoencoder_stats["reconstruction_errors"])),
+                                            "MSE": autoencoder_stats["reconstruction_errors"]
+                                        })
+                                        st.dataframe(recon_df)
+                                    else:
+                                        st.info("No reconstruction error values available")
+                        else:
+                            st.info("No sparse autoencoder analysis was performed for this run.")
 
                     # --- Add Per-Layer Visualizations ---
                     st.markdown("--- ")  # Separator

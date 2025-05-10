@@ -43,6 +43,15 @@ from utils.probe import (
 from utils.sparse_autoencoder import (
     train_and_evaluate_autoencoders
 )
+from utils.sparse_autoencoder.analysis import (
+    get_sparsity_metrics_by_layer,
+    create_sparsity_dataframe,
+    plot_sparsity_by_layer,
+    plot_l1_sparsity_by_layer,
+    plot_reconstruction_error_by_layer,
+    plot_activation_distribution,
+    plot_neuron_activations
+)
 from utils.ui import (
     create_model_tracker,
     create_dataset_tracker,
@@ -429,9 +438,29 @@ with main_tabs[0]:
         alignment_strength_plot = st.empty()
         alignment_explanation = st.empty()
 
-# Placeholder for the second main tab
+# Setup Sparse Autoencoder Analysis Sub-Tabs and placeholders
 with main_tabs[1]:
-    st.info("Analysis for Sparse Autoencoders will be added here.")
+    autoencoder_tabs = st.tabs(["Sparsity Analysis", "Activation Distribution", "Reconstruction Error", "Data View"])
+
+    sparsity_tab_container = autoencoder_tabs[0]
+    distribution_tab_container = autoencoder_tabs[1]
+    reconstruction_tab_container = autoencoder_tabs[2]
+    data_tab_container = autoencoder_tabs[3]
+
+    # Define empty containers within the sub-tabs for later population
+    with sparsity_tab_container:
+        sparsity_plot = st.empty()
+        l1_sparsity_plot = st.empty()
+
+    with distribution_tab_container:
+        activation_plot = st.empty()
+
+    with reconstruction_tab_container:
+        reconstruction_plot = st.empty()
+
+    with data_tab_container:
+        # Content will be added dynamically
+        pass
 
 # Create progress trackers using the UI module
 model_tracker = create_model_tracker(model_status, model_progress_bar, model_progress_text, model_detail, add_log)
@@ -826,6 +855,115 @@ if run_button:
 
                 save_json(autoencoder_stats, os.path.join(run_folder, "autoencoder_stats.json"))
                 add_log(f"Saved autoencoder statistics to {os.path.join(run_folder, 'autoencoder_stats.json')}")
+
+                # Visualize sparse autoencoder results
+                with main_tabs[1]:
+                    # Calculate detailed sparsity metrics for each layer
+                    sparsity_metrics = get_sparsity_metrics_by_layer(
+                        results['autoencoders'],
+                        test_hidden_states
+                    )
+
+                    # Create a dataframe with the metrics
+                    sparsity_df = create_sparsity_dataframe(sparsity_metrics)
+
+                    # Display in Data View tab
+                    with autoencoder_tabs[3]:
+                        st.subheader("Sparsity Metrics by Layer")
+                        st.dataframe(sparsity_df)
+
+                    # Sparsity Analysis Tab
+                    with sparsity_tab_container:
+                        # Plot sparsity percentage by layer
+                        fig_sparsity = plot_sparsity_by_layer(
+                            sparsity_metrics,
+                            model_name,
+                            dataset_source,
+                            run_folder
+                        )
+                        sparsity_plot.pyplot(fig_sparsity)
+
+                        # Plot L1 sparsity by layer
+                        fig_l1_sparsity = plot_l1_sparsity_by_layer(
+                            sparsity_metrics,
+                            model_name,
+                            dataset_source,
+                            run_folder
+                        )
+                        l1_sparsity_plot.pyplot(fig_l1_sparsity)
+
+                        # Add explanation
+                        with st.expander("What do these charts show?", expanded=False):
+                            st.markdown("""
+                            These charts visualize how sparsity changes across different layers of the model:
+
+                            **Sparsity Percentage Chart**:
+                            - Shows what percentage of neurons in the hidden representation are inactive (zero) for each layer
+                            - Higher percentages indicate more sparse representations
+                            - Typically, deeper layers might show different sparsity patterns than earlier layers
+
+                            **L1 Sparsity Measure Chart**:
+                            - Displays the average absolute value of activations for each layer
+                            - This is another way to measure sparsity - smaller values generally indicate more sparse representations
+                            - L1 sparsity is what the autoencoder is directly optimizing with its L1 penalty term
+
+                            These visualizations help identify which layers naturally develop more or less sparse representations and how sparsity varies across the network.
+                            """)
+
+                    # Reconstruction Error Tab
+                    with reconstruction_tab_container:
+                        # Plot reconstruction error by layer
+                        fig_recon = plot_reconstruction_error_by_layer(
+                            results['reconstruction_errors'],
+                            model_name,
+                            dataset_source,
+                            run_folder
+                        )
+                        reconstruction_plot.pyplot(fig_recon)
+
+                        with st.expander("What does this chart show?", expanded=False):
+                            st.markdown("""
+                            This chart shows the reconstruction error (Mean Squared Error) for each layer's sparse autoencoder:
+
+                            - Lower values indicate better reconstruction quality - the autoencoder was able to accurately reproduce the original input from its sparse representation
+                            - Higher values suggest the sparse representation lost some information
+                            - Comparing this with the sparsity plots can reveal trade-offs between sparsity and reconstruction quality
+                            - Layers with high sparsity but low reconstruction error have found efficient sparse representations
+                            """)
+
+                    # Activation Distribution Tab
+                    with distribution_tab_container:
+                        # Create tabs for each layer
+                        layer_tabs = st.tabs([f"Layer {i}" for i in range(len(results['autoencoders']))])
+
+                        # For each layer, show activation distributions and top neurons
+                        for i, layer_tab in enumerate(layer_tabs):
+                            with layer_tab:
+                                autoencoder = results['autoencoders'][i]
+                                test_feats = test_hidden_states[:, i, :]
+
+                                col1, col2 = st.columns(2)
+
+                                with col1:
+                                    st.subheader(f"Activation Distribution - Layer {i}")
+                                    fig_dist = plot_activation_distribution(
+                                        autoencoder,
+                                        test_feats,
+                                        i,
+                                        run_folder
+                                    )
+                                    st.pyplot(fig_dist)
+
+                                with col2:
+                                    st.subheader(f"Top Active Neurons - Layer {i}")
+                                    fig_top = plot_neuron_activations(
+                                        autoencoder,
+                                        test_feats,
+                                        i,
+                                        top_k=20,  # Show top 20 neurons
+                                        run_folder=run_folder
+                                    )
+                                    st.pyplot(fig_top)
 
             # --- Save per-layer visualizations for future access ---
             add_log("Saving per-layer visualizations...")
