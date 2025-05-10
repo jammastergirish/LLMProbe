@@ -32,13 +32,7 @@ from utils.probe import (
     create_metrics_dataframe,
     plot_truth_direction_projection,
     plot_confusion_matrix,
-    plot_probe_weights,
-    SparseAutoencoder,
-    train_sparse_autoencoder,
-    visualize_feature_grid,
-    visualize_feature_activations,
-    visualize_feature_attribution,
-    visualize_neuron_feature_connections
+    plot_probe_weights
 )
 from utils.ui import (
     create_model_tracker,
@@ -173,20 +167,6 @@ if dataset_source == "custom":
             st.sidebar.error(f"Error reading CSV: {str(e)}")
 
 use_control_tasks = st.sidebar.checkbox("Use control tasks", value=True)
-use_sparse_autoencoder = st.sidebar.checkbox("Use sparse autoencoders", value=False)
-
-if use_sparse_autoencoder:
-    with st.sidebar.expander("🔍 Sparse Autoencoder Options", expanded=True):
-        sae_dimensions = st.number_input(
-            "Feature dimensions (z)", min_value=10, max_value=10000, value=256)
-        sae_training_epochs = st.number_input(
-            "SAE training epochs", min_value=5, max_value=500, value=50)
-        sae_learning_rate = st.number_input(
-            "SAE learning rate", min_value=0.0001, max_value=0.1, value=0.001, format="%.4f")
-        sae_l1_coefficient = st.number_input(
-            "L1 sparsity coefficient", min_value=0.0001, max_value=1.0, value=0.01, format="%.4f")
-        sae_supervised = st.checkbox("Use supervised SAE training", value=False,
-            help="When checked, the SAE will be trained with supervision from the dataset labels")
 
 if is_decoder_only_model(model_name):
     output_layer = st.sidebar.selectbox(
@@ -278,16 +258,6 @@ with progress_col1:
     embedding_detail = st.empty()
     st.markdown('</div>', unsafe_allow_html=True)
 
-    if use_sparse_autoencoder:
-        st.markdown('#### 🔬 Train Sparse Autoencoder')
-        sae_status = st.empty()
-        sae_status.markdown(
-            '<span class="status-idle">Waiting to start...</span>', unsafe_allow_html=True)
-        sae_progress_bar = st.progress(0)
-        sae_progress_text = st.empty()
-        sae_detail = st.empty()
-        st.markdown('</div>', unsafe_allow_html=True)
-
 with progress_col2:
     # st.markdown('<div class="progress-container">', unsafe_allow_html=True)
     st.markdown('#### 📊 Load Dataset')
@@ -327,7 +297,7 @@ st.markdown("""
 
 # Create Main Tabs
 main_tabs = st.tabs(
-    ["Probe Analysis", "Sparse Autoencoder Analysis"])
+    ["Probe Analysis", "Sparse Autoencoder Analysis (Coming Soon)"])
 
 # Setup Probe Analysis Sub-Tabs and placeholders
 with main_tabs[0]:
@@ -350,89 +320,15 @@ with main_tabs[0]:
         # data_display = st.empty() # Content will be added directly later
         pass  # Data view content is complex, added dynamically
 
-# Setup Sparse Autoencoder Analysis tab
+# Placeholder for the second main tab
 with main_tabs[1]:
-    if not use_sparse_autoencoder:
-        st.info("Enable 'Use sparse autoencoders' in the sidebar to activate this analysis.")
-    else:
-        sae_tabs = st.tabs(["Feature Visualization", "Activation Analysis",
-                           "Feature Attribution", "Neuron Analysis"])
-
-        sae_features_container = sae_tabs[0]
-        sae_activations_container = sae_tabs[1]
-        sae_attribution_container = sae_tabs[2]
-        sae_neuron_container = sae_tabs[3]
-
-        # Define empty containers within the SAE sub-tabs for later population
-        with sae_features_container:
-            st.markdown("### Sparse Autoencoder Feature Visualization")
-            sae_features_plot = st.empty()
-            with st.expander("What does this visualization show?", expanded=False):
-                st.markdown("""
-                This visualization shows the features learned by the sparse autoencoder.
-
-                - Each row represents a feature (dictionary element) learned by the SAE
-                - Brighter colors indicate stronger positive weights, darker colors indicate stronger negative weights
-                - This helps identify what patterns each feature is detecting in the model's activations
-                """)
-
-        with sae_activations_container:
-            st.markdown("### Activation Patterns")
-            sae_activations_col1, sae_activations_col2 = st.columns(2)
-            with sae_activations_col1:
-                sae_sparsity_plot = st.empty()
-            with sae_activations_col2:
-                sae_activation_dist_plot = st.empty()
-
-            with st.expander("What does this visualization show?", expanded=False):
-                st.markdown("""
-                These visualizations show activation patterns in the sparse autoencoder:
-
-                - **Sparsity Analysis**: Shows how active each feature is across the dataset, helping identify which features are most frequently used
-                - **Activation Distribution**: Shows the distribution of activation values, with most values ideally being near zero (sparse representation)
-                """)
-
-        with sae_attribution_container:
-            st.markdown("### Feature Attribution to Truth Values")
-            sae_truth_attribution_plot = st.empty()
-
-            with st.expander("What does this visualization show?", expanded=False):
-                st.markdown("""
-                This visualization shows how each learned feature correlates with true/false values in the dataset:
-
-                - Features with strong positive correlation are more active for TRUE statements
-                - Features with strong negative correlation are more active for FALSE statements
-                - Features near zero have little correlation with the truth value
-                """)
-
-        with sae_neuron_container:
-            st.markdown("### Neuron-Feature Connections")
-            sae_neuron_feature_plot = st.empty()
-
-            with st.expander("What does this visualization show?", expanded=False):
-                st.markdown("""
-                This visualization shows the relationship between original model neurons and the sparse features:
-
-                - Highlights which model neurons contribute most to each sparse feature
-                - Helps identify the role of specific neurons in the model's understanding of truth
-                """)
+    st.info("Analysis for Sparse Autoencoders will be added here.")
 
 # Create progress trackers using the UI module
 model_tracker = create_model_tracker(model_status, model_progress_bar, model_progress_text, model_detail, add_log)
 dataset_tracker = create_dataset_tracker(dataset_status, dataset_progress_bar, dataset_progress_text, dataset_detail, add_log)
 embedding_tracker = create_embedding_tracker(embedding_status, embedding_progress_bar, embedding_progress_text, embedding_detail, add_log)
 training_tracker = create_training_tracker(training_status, training_progress_bar, training_progress_text, training_detail, add_log)
-
-# A direct function to update SAE progress
-def update_sae_progress(status_element, progress_bar, progress_text, detail_element,
-                       progress_value, message, log_func):
-    """Direct function to update SAE progress without using a tracker object"""
-    status_element.markdown(
-        f'<span class="status-running">Training SAE: {message}</span>', unsafe_allow_html=True)
-    progress_bar.progress(progress_value)
-    progress_text.text(f"{int(progress_value * 100)}% complete")
-    detail_element.text(f"Training in progress for {message}")
-    log_func(f"Sparse Autoencoder: Training {message}")
 
 def mark_complete(status_element, message="Complete"):
     """Mark this stage as complete"""
@@ -604,20 +500,6 @@ if run_button:
             "num_layers": num_layers,
             "num_examples": len(examples)
         }
-
-        # Add SAE parameters if enabled
-        if use_sparse_autoencoder:
-            parameters.update({
-                "use_sparse_autoencoder": True,
-                "sae_dimensions": sae_dimensions,
-                "sae_training_epochs": sae_training_epochs,
-                "sae_learning_rate": sae_learning_rate,
-                "sae_l1_coefficient": sae_l1_coefficient,
-                "sae_supervised": sae_supervised
-            })
-        else:
-            parameters["use_sparse_autoencoder"] = False
-
         save_json(parameters, os.path.join(run_folder, "parameters.json"))
         add_log(f"Saved parameters to {os.path.join(run_folder, 'parameters.json')}")
 
@@ -685,191 +567,6 @@ if run_button:
             alignment_strengths, all_layers_mean_diff_activations, probe_weights = calculate_alignment_strengths(
                 test_hidden_states, test_labels, results, num_layers
             )
-
-        # 6. Sparse Autoencoder Analysis (if enabled)
-        if use_sparse_autoencoder:
-            # Create basic manual tracking instead of using the tracker object
-            if 'sae_status' in locals():
-                # Initialize progress display
-                sae_status.markdown(
-                    '<span class="status-running">Initializing sparse autoencoder analysis...</span>',
-                    unsafe_allow_html=True
-                )
-                sae_progress_bar.progress(0)
-                sae_progress_text.text("0% complete")
-                sae_detail.text("Starting SAE training")
-                add_log("Sparse Autoencoder: Starting analysis")
-
-                # Dictionary to store trained SAE models for each layer
-                sae_models = {}
-                sae_histories = {}
-
-                try:
-                    # Train SAE for each layer of interest
-                    for layer_idx in range(num_layers):
-                        layer_progress = layer_idx / num_layers
-                        # Update progress display for the current layer
-                        sae_status.markdown(
-                            f'<span class="status-running">Training SAE for layer {layer_idx}/{num_layers-1}</span>',
-                            unsafe_allow_html=True
-                        )
-                        sae_progress_bar.progress(layer_progress)
-                        sae_progress_text.text(f"{int(layer_progress * 100)}% complete")
-                        sae_detail.text(f"Initializing model with {sae_dimensions} features")
-                        add_log(f"Sparse Autoencoder: Starting layer {layer_idx}/{num_layers-1}")
-
-                        # Extract hidden states for this layer
-                        train_layer_states = train_hidden_states[:, layer_idx, :]
-                        test_layer_states = test_hidden_states[:, layer_idx, :]
-
-                        # Get input dimension for this layer
-                        input_dim = train_layer_states.shape[1]
-
-                        # Create SAE model
-                        sae_model = SparseAutoencoder(
-                            input_dim=input_dim,
-                            feature_dim=sae_dimensions,
-                            l1_coefficient=sae_l1_coefficient,
-                            supervised=sae_supervised
-                        ).to(device)
-
-                        # Train the SAE model
-                        sae_history = train_sparse_autoencoder(
-                            model=sae_model,
-                            train_data=train_layer_states,
-                            train_labels=train_labels if sae_supervised else None,
-                            val_data=test_layer_states,
-                            val_labels=test_labels if sae_supervised else None,
-                            epochs=sae_training_epochs,
-                            batch_size=batch_size,
-                            learning_rate=sae_learning_rate,
-                            progress_callback=lambda p, *args: update_sae_progress(
-                                sae_status, sae_progress_bar, sae_progress_text, sae_detail,
-                                layer_progress + (p * (1/num_layers)),
-                                f"Layer {layer_idx}/{num_layers-1}",
-                                add_log
-                            ),
-                            device=device
-                        )
-
-                        # Store trained model and history
-                        sae_models[layer_idx] = sae_model
-                        sae_histories[layer_idx] = sae_history
-
-                        # Save SAE model weights
-                        sae_dir = os.path.join(run_folder, "sae_models")
-                        os.makedirs(sae_dir, exist_ok=True)
-                        torch.save(
-                            sae_model.state_dict(),
-                            os.path.join(sae_dir, f"sae_layer_{layer_idx}.pt")
-                        )
-                        add_log(f"Saved SAE model for layer {layer_idx} to {sae_dir}")
-
-                    # Mark SAE training as complete
-                    sae_status.markdown(
-                        '<span class="status-success">Sparse Autoencoder Training Complete</span>',
-                        unsafe_allow_html=True
-                    )
-                    sae_progress_bar.progress(1.0)
-                    add_log("Sparse Autoencoder: Training complete")
-
-                    # Create visualizations for SAE analysis tab
-                    with main_tabs[1]:
-                        # Let user choose which layer to visualize
-                        sae_layer_selector = st.selectbox(
-                            "Select layer to visualize:",
-                            list(range(num_layers)),
-                            key="sae_layer_selector"
-                        )
-
-                        # Get the selected SAE model and data
-                        selected_sae = sae_models[sae_layer_selector]
-                        selected_test_states = test_hidden_states[:, sae_layer_selector, :]
-
-                        # Visualize in the four tabs
-                        with sae_tabs[0]:  # Feature Visualization
-                            sae_features_plot.info("Generating feature visualization...")
-                            fig_features = visualize_feature_grid(selected_sae)
-                            sae_features_plot.pyplot(fig_features)
-
-                            # Save the visualization
-                            save_graph(fig_features, os.path.join(
-                                run_folder, f"sae_features_layer_{sae_layer_selector}.png"))
-
-                        with sae_tabs[1]:  # Activation Analysis
-                            sae_activations_col1.info("Generating sparsity analysis...")
-                            sae_activations_col2.info("Generating activation distribution...")
-
-                            # Generate activation visualizations
-                            fig_sparsity, fig_act_dist = visualize_feature_activations(
-                                selected_sae, selected_test_states, test_labels)
-
-                            sae_sparsity_plot.pyplot(fig_sparsity)
-                            sae_activation_dist_plot.pyplot(fig_act_dist)
-
-                            # Save visualizations
-                            save_graph(fig_sparsity, os.path.join(
-                                run_folder, f"sae_sparsity_layer_{sae_layer_selector}.png"))
-                            save_graph(fig_act_dist, os.path.join(
-                                run_folder, f"sae_act_dist_layer_{sae_layer_selector}.png"))
-
-                            # Show sparsity metrics
-                            metrics = selected_sae.get_sparsity_metrics(selected_test_states)
-                            st.markdown("### Sparsity Metrics")
-                            metrics_df = pd.DataFrame({
-                                'Metric': list(metrics.keys()),
-                                'Value': list(metrics.values())
-                            })
-                            st.table(metrics_df)
-
-                        with sae_tabs[2]:  # Feature Attribution
-                            sae_truth_attribution_plot.info("Generating truth attribution visualization...")
-
-                            # Generate attribution visualization
-                            if test_labels is not None:
-                                fig_attr = visualize_feature_attribution(
-                                    selected_sae, selected_test_states, test_labels)
-                                sae_truth_attribution_plot.pyplot(fig_attr)
-
-                                # Save visualization
-                                save_graph(fig_attr, os.path.join(
-                                    run_folder, f"sae_attribution_layer_{sae_layer_selector}.png"))
-                            else:
-                                sae_truth_attribution_plot.error("No labels available for attribution analysis")
-
-                        with sae_tabs[3]:  # Neuron Analysis
-                            sae_neuron_feature_plot.info("Generating neuron-feature connections...")
-
-                            # Generate neuron-feature connections visualization
-                            fig_neurons = visualize_neuron_feature_connections(selected_sae)
-                            sae_neuron_feature_plot.pyplot(fig_neurons)
-
-                            # Save visualization
-                            save_graph(fig_neurons, os.path.join(
-                                run_folder, f"sae_neurons_layer_{sae_layer_selector}.png"))
-
-                    # Save SAE results to JSON
-                    sae_results = {}
-                    for layer_idx, history in sae_histories.items():
-                        sae_results[f"layer_{layer_idx}"] = {
-                            "reconstruction_loss": history["reconstruction_loss"],
-                            "l1_loss": history["l1_loss"],
-                            "total_loss": history["total_loss"]
-                        }
-                        if sae_supervised and "accuracy" in history:
-                            sae_results[f"layer_{layer_idx}"]["accuracy"] = history["accuracy"]
-
-                    save_json(sae_results, os.path.join(run_folder, "sae_results.json"))
-                    add_log(f"Saved SAE results to {os.path.join(run_folder, 'sae_results.json')}")
-
-                except Exception as e:
-                    sae_status.markdown(
-                        f'<span class="status-error">Error in SAE Analysis</span>', unsafe_allow_html=True)
-                    sae_detail.text(str(e))
-                    add_log(f"SAE Error: {str(e)}")
-                    st.error(f"An error occurred during sparse autoencoder analysis: {str(e)}")
-            else:
-                add_log("SAE UI elements not available, skipping SAE analysis")
 
             with accuracy_tab_container:  # Display in the first sub-tab of Probe Analysis
                 if use_control_tasks and results['selectivities']:
