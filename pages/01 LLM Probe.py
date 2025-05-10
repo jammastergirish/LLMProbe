@@ -285,8 +285,15 @@ with st.expander("📋 Detailed Log", expanded=False):
 
     def add_log(message):
         timestamp = datetime.now().strftime("%H:%M:%S")
-        log_text.append(f"[{timestamp}] {message}")
+        log_entry = f"[{timestamp}] {message}"
+        log_text.append(log_entry)
         log_placeholder.code("\n".join(log_text), language="")
+        save_log_to_file(run_folder)
+
+    def save_log_to_file(run_folder):
+        log_file_path = os.path.join(run_folder, "log.txt")
+        with open(log_file_path, "a") as f:
+            f.write("\n".join(log_text))
         
 st.markdown("""
 <div class="section-header">Results</div>

@@ -30,7 +30,7 @@ if os.path.exists(SAVED_DATA_DIR):
 
                 # Create tabs for different sections
                 run_tabs = st.tabs(
-                    ["📋 Overview", "⚙️ Parameters", "📈 Visualizations"])
+                    ["📋 Overview", "⚙️ Parameters", "📈 Visualizations", "📝 Log"])
 
                 # Overview tab
                 with run_tabs[0]:
@@ -164,6 +164,22 @@ if os.path.exists(SAVED_DATA_DIR):
                         st.info(
                             "No per-layer visualizations were saved for this run.")
                     # --- End Per-Layer Visualizations ---
+
+                # Log tab
+                with run_tabs[3]:
+                    st.subheader("Log")
+                    log_file_path = os.path.join(run_folder, "log.txt")
+
+                    if os.path.exists(log_file_path):
+                        with open(log_file_path, "rb") as f:
+                            st.download_button(
+                                label="📥 Download Log File",
+                                data=f,
+                                file_name="log.txt",
+                                mime="text/plain"
+                            )
+                    else:
+                        st.info("No log file found for this run.")
     else:
         st.info("No saved runs found.")
 else:
