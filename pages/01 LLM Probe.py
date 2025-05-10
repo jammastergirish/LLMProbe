@@ -190,7 +190,7 @@ if dataset_source == "custom":
         except Exception as e:
             st.sidebar.error(f"Error reading CSV: {str(e)}")
 
-use_linear_probe = st.sidebar.checkbox("Use Linear Probe", value=True)
+use_linear_probe = st.sidebar.checkbox("Linear Probes", value=True)
 
 with st.sidebar.expander("⚙️ Linear Probe Options"):
     # Linear probe parameters
@@ -205,7 +205,7 @@ with st.sidebar.expander("⚙️ Linear Probe Options"):
     batch_size = st.number_input("Batch size", min_value=1, max_value=64, value=16,
                                  help="Larger batches are faster but use more memory. Use smaller values for large models.")
 
-use_sparse_autoencoder = st.sidebar.checkbox("Use Sparse Autoencoder", value=False)
+use_sparse_autoencoder = st.sidebar.checkbox("Sparse Autoencoders", value=True)
 
 # Sparse autoencoder specific options (only show if selected)
 if use_sparse_autoencoder:
@@ -421,7 +421,7 @@ with main_tabs[0]:
     accuracy_tab_container = probe_tabs[0]
     pca_tab_container = probe_tabs[1]
     projection_tab_container = probe_tabs[2]
-    data_tab_container = probe_tabs[3]
+    probe_data_tab_container = probe_tabs[3]
     alignment_tab_container = probe_tabs[4]
 
     # Define empty containers within the sub-tabs for later population
@@ -432,7 +432,7 @@ with main_tabs[0]:
         pca_plot = st.empty()
     with projection_tab_container:
         projection_plot = st.empty()
-    with data_tab_container:
+    with probe_data_tab_container:
         # data_display = st.empty() # Content will be added directly later
         pass  # Data view content is complex, added dynamically
     with alignment_tab_container:
@@ -446,7 +446,7 @@ with main_tabs[1]:
     sparsity_tab_container = autoencoder_tabs[0]
     distribution_tab_container = autoencoder_tabs[1]
     reconstruction_tab_container = autoencoder_tabs[2]
-    data_tab_container = autoencoder_tabs[3]
+    autoencoder_data_tab_container = autoencoder_tabs[3]
 
     # Define empty containers within the sub-tabs for later population
     with sparsity_tab_container:
@@ -460,7 +460,7 @@ with main_tabs[1]:
     with reconstruction_tab_container:
         reconstruction_plot = st.empty()
 
-    with data_tab_container:
+    with autoencoder_data_tab_container:
         # Content will be added dynamically
         pass
 
@@ -870,7 +870,7 @@ if run_button:
                     sparsity_df = create_sparsity_dataframe(sparsity_metrics)
 
                     # Display in Data View tab
-                    with autoencoder_tabs[3]:
+                    with autoencoder_data_tab_container:
                         st.subheader("Sparsity Metrics by Layer")
                         st.dataframe(sparsity_df)
 
@@ -1162,7 +1162,7 @@ if run_button:
                     """)
 
             # Restore Data Tab Content
-            with data_tab_container:
+            with probe_data_tab_container:
                 layer_tabs = st.tabs(
                     [f"Layer {i}" for i in range(num_layers)])
 
