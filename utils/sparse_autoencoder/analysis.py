@@ -43,44 +43,79 @@ def calculate_average_activation(h_activated):
 
 def calculate_l1_sparsity(h_activated):
     """Calculate L1 sparsity measure (average absolute value of activations)
-    
+
     Args:
         h_activated: Activated representation of shape [batch_size, bottleneck_dim]
-        
+
     Returns:
         l1_sparsity: Average absolute value of activations
     """
     return torch.mean(torch.abs(h_activated)).item()
 
+def calculate_gini_coefficient(h_activated):
+    """Calculate Gini coefficient for the activations
+
+    The Gini coefficient is a measure of inequality, where 0 represents perfect equality
+    (all neurons equally active) and 1 represents perfect inequality (one neuron has all activation).
+    It's a common measure of sparsity in neural network activations.
+
+    Args:
+        h_activated: Activated representation of shape [batch_size, bottleneck_dim]
+
+    Returns:
+        gini: Gini coefficient value (between 0 and 1)
+    """
+    # Get absolute values of activations and flatten
+    values = torch.abs(h_activated).flatten().cpu().numpy()
+
+    # Sort values in ascending order
+    values = np.sort(values)
+
+    # Skip calculation if all values are zero
+    if np.sum(values) == 0:
+        return 0.0
+
+    # Calculate Gini coefficient
+    n = len(values)
+    cumulative_sum = np.cumsum(values)
+    cumulative_proportion = cumulative_sum / cumulative_sum[-1]
+    area_under_curve = np.sum(cumulative_proportion)
+
+    # Calculate the Gini coefficient (area between Lorenz curve and equality line)
+    gini = 1 - 2 * area_under_curve / n + 1 / n
+
+    return gini
+
 def get_sparsity_metrics_by_layer(autoencoders, test_hidden_states):
     """Calculate sparsity metrics across all layers
-    
+
     Args:
         autoencoders: List of trained autoencoder models
         test_hidden_states: Hidden states from test set [batch_size, num_layers, hidden_dim]
-        
+
     Returns:
         metrics_by_layer: List of dictionaries with sparsity metrics for each layer
     """
     metrics_by_layer = []
     num_layers = len(autoencoders)
-    
+
     for layer_idx in range(num_layers):
         # Get test features for this layer
         test_feats = test_hidden_states[:, layer_idx, :]
-        
+
         # Get autoencoder for this layer
         autoencoder = autoencoders[layer_idx]
-        
+
         # Forward pass through autoencoder (no gradients needed)
         with torch.no_grad():
             _, h_activated, _ = autoencoder(test_feats)
-            
+
             # Calculate sparsity metrics
             sparsity_percentage, active_neurons, total_neurons = calculate_sparsity_percentage(h_activated)
             avg_activation = calculate_average_activation(h_activated)
             l1_sparsity = calculate_l1_sparsity(h_activated)
-            
+            gini_coefficient = calculate_gini_coefficient(h_activated)
+
             # Store metrics for this layer
             metrics_by_layer.append({
                 "layer": layer_idx,
@@ -88,17 +123,18 @@ def get_sparsity_metrics_by_layer(autoencoders, test_hidden_states):
                 "active_neurons": active_neurons,
                 "total_neurons": total_neurons,
                 "avg_activation": avg_activation,
-                "l1_sparsity": l1_sparsity
+                "l1_sparsity": l1_sparsity,
+                "gini_coefficient": gini_coefficient
             })
-    
+
     return metrics_by_layer
 
 def create_sparsity_dataframe(metrics_by_layer):
     """Create a DataFrame for displaying sparsity metrics
-    
+
     Args:
         metrics_by_layer: List of dictionaries with sparsity metrics for each layer
-        
+
     Returns:
         df: DataFrame with sparsity metrics
     """
@@ -109,7 +145,9 @@ def create_sparsity_dataframe(metrics_by_layer):
     df["avg_activation"] = df["avg_activation"].map("{:.4f}".format)
     # Format L1 sparsity
     df["l1_sparsity"] = df["l1_sparsity"].map("{:.4f}".format)
-    
+    # Format Gini coefficient
+    df["gini_coefficient"] = df["gini_coefficient"].map("{:.4f}".format)
+
     return df
 
 def plot_sparsity_by_layer(metrics_by_layer, model_name, dataset_source, run_folder=None):
@@ -291,37 +329,81 @@ def plot_l1_sparsity_by_layer(metrics_by_layer, model_name, dataset_source, run_
 
 def plot_reconstruction_error_by_layer(reconstruction_errors, model_name, dataset_source, run_folder=None):
     """Plot reconstruction error by layer
-    
+
     Args:
         reconstruction_errors: List of reconstruction errors for each layer
         model_name: Name of the model
         dataset_source: Name of the dataset
         run_folder: Folder to save the plot to
-        
+
     Returns:
         fig: Matplotlib figure object
     """
     # Create the figure
     fig, ax = plt.subplots(figsize=(10, 6))
-    
+
     # Plot the data
     ax.plot(range(len(reconstruction_errors)), reconstruction_errors, marker="o", linewidth=2, color="#4CAF50")
-    
+
     # Add titles and labels
     ax.set_title(f"Reconstruction Error per Layer ({model_name})", fontsize=14)
     ax.set_xlabel("Layer", fontsize=12)
     ax.set_ylabel("MSE Reconstruction Error", fontsize=12)
     ax.grid(True, alpha=0.3)
-    
+
     # Add exact values as text labels
     for i, error in enumerate(reconstruction_errors):
         ax.annotate(f"{error:.4f}", (i, error), textcoords="offset points",
                     xytext=(0, 5), ha='center')
-    
+
     plt.tight_layout()
-    
+
     # Save the figure if run_folder is provided
     if run_folder:
         save_graph(fig, os.path.join(run_folder, "reconstruction_error_plot.png"))
-    
+
+    return fig
+
+def plot_gini_coefficient_by_layer(metrics_by_layer, model_name, dataset_source, run_folder=None):
+    """Plot Gini coefficient by layer
+
+    Args:
+        metrics_by_layer: List of dictionaries with sparsity metrics for each layer
+        model_name: Name of the model
+        dataset_source: Name of the dataset
+        run_folder: Folder to save the plot to
+
+    Returns:
+        fig: Matplotlib figure object
+    """
+    # Extract layer indices and Gini coefficients
+    layers = [metrics["layer"] for metrics in metrics_by_layer]
+    gini_coefficients = [metrics["gini_coefficient"] for metrics in metrics_by_layer]
+
+    # Create the figure
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    # Plot the data
+    ax.plot(layers, gini_coefficients, marker="o", linewidth=2, color="#9C27B0")
+
+    # Add titles and labels
+    ax.set_title(f"Gini Coefficient per Layer ({model_name})", fontsize=14)
+    ax.set_xlabel("Layer", fontsize=12)
+    ax.set_ylabel("Gini Coefficient", fontsize=12)
+    ax.grid(True, alpha=0.3)
+
+    # Add exact values as text labels
+    for i, gini in enumerate(gini_coefficients):
+        ax.annotate(f"{gini:.4f}", (i, gini), textcoords="offset points",
+                    xytext=(0, 5), ha='center')
+
+    # Set y-axis limits (Gini coefficient is between 0 and 1)
+    ax.set_ylim(0, 1.05)
+
+    plt.tight_layout()
+
+    # Save the figure if run_folder is provided
+    if run_folder:
+        save_graph(fig, os.path.join(run_folder, "gini_coefficient_plot.png"))
+
     return fig

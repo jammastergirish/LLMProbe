@@ -48,6 +48,7 @@ from utils.sparse_autoencoder.analysis import (
     create_sparsity_dataframe,
     plot_sparsity_by_layer,
     plot_l1_sparsity_by_layer,
+    plot_gini_coefficient_by_layer,
     plot_reconstruction_error_by_layer,
     plot_activation_distribution,
     plot_neuron_activations
@@ -451,6 +452,7 @@ with main_tabs[1]:
     with sparsity_tab_container:
         sparsity_plot = st.empty()
         l1_sparsity_plot = st.empty()
+        gini_coefficient_plot = st.empty()
 
     with distribution_tab_container:
         activation_plot = st.empty()
@@ -892,6 +894,15 @@ if run_button:
                         )
                         l1_sparsity_plot.pyplot(fig_l1_sparsity)
 
+                        # Plot Gini coefficient by layer
+                        fig_gini = plot_gini_coefficient_by_layer(
+                            sparsity_metrics,
+                            model_name,
+                            dataset_source,
+                            run_folder
+                        )
+                        gini_coefficient_plot.pyplot(fig_gini)
+
                         # Add explanation
                         with st.expander("What do these charts show?", expanded=False):
                             st.markdown("""
@@ -906,6 +917,12 @@ if run_button:
                             - Displays the average absolute value of activations for each layer
                             - This is another way to measure sparsity - smaller values generally indicate more sparse representations
                             - L1 sparsity is what the autoencoder is directly optimizing with its L1 penalty term
+
+                            **Gini Coefficient Chart**:
+                            - The Gini coefficient measures inequality in the distribution of activations
+                            - Values range from 0 (perfect equality, all neurons equally active) to 1 (perfect inequality, one neuron has all activation)
+                            - Higher values indicate more sparse representations where a few neurons capture most of the activation
+                            - This is a common measure used in economics and increasingly in neural network analysis to quantify sparsity
 
                             These visualizations help identify which layers naturally develop more or less sparse representations and how sparsity varies across the network.
                             """)
