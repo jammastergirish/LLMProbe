@@ -407,3 +407,172 @@ def plot_gini_coefficient_by_layer(metrics_by_layer, model_name, dataset_source,
         save_graph(fig, os.path.join(run_folder, "gini_coefficient_plot.png"))
 
     return fig
+
+def get_top_activating_examples(autoencoder, test_feats, examples, feature_idx, top_k=5):
+    """Get examples that most strongly activate a specific feature
+
+    Args:
+        autoencoder: Trained autoencoder model
+        test_feats: Test features [batch_size, hidden_dim]
+        examples: List of example dictionaries with 'text' field
+        feature_idx: Index of the feature to analyze
+        top_k: Number of top examples to return
+
+    Returns:
+        top_examples: List of dictionaries with example text and activation value
+    """
+    with torch.no_grad():
+        # Forward pass through the autoencoder
+        _, h_activated, _ = autoencoder(test_feats)
+        
+        # Get activations for the specific feature across all examples
+        feature_activations = h_activated[:, feature_idx].cpu().numpy()
+        
+        # Get indices of examples with highest activations for this feature
+        top_indices = np.argsort(feature_activations)[::-1][:top_k]
+        
+        # Create list of top examples with their activation values
+        top_examples = []
+        for idx in top_indices:
+            if idx < len(examples):
+                activation = feature_activations[idx]
+                # Only include examples with positive activation
+                if activation > 0:
+                    top_examples.append({
+                        'text': examples[idx]['text'],
+                        'activation': float(activation)
+                    })
+        
+        return top_examples
+
+def get_feature_grid_data(autoencoder, test_feats, examples, layer_idx, num_features=25):
+    """Get data for feature grid visualization of sparse autoencoder features
+
+    Args:
+        autoencoder: Trained autoencoder model
+        test_feats: Test features [batch_size, hidden_dim]
+        examples: List of example dictionaries with 'text' field
+        layer_idx: Layer index
+        num_features: Number of top features to display in the grid
+
+    Returns:
+        feature_data: List of dictionaries with feature information
+    """
+    with torch.no_grad():
+        # Forward pass through the autoencoder
+        _, h_activated, _ = autoencoder(test_feats)
+
+        # Calculate mean activation per feature
+        mean_activations = torch.mean(h_activated, dim=0).cpu().numpy()
+
+        # Get indices of top activated features
+        top_feature_indices = np.argsort(mean_activations)[::-1][:num_features]
+
+        # Prepare feature data
+        feature_data = []
+
+        # For each feature, get the most activating examples
+        for feature_idx in top_feature_indices:
+            # Get examples that most activate this feature
+            top_examples = get_top_activating_examples(
+                autoencoder, test_feats, examples, feature_idx, top_k=3
+            )
+
+            # Store feature information
+            feature_info = {
+                'feature_idx': int(feature_idx),
+                'mean_activation': float(mean_activations[feature_idx]),
+                'top_examples': top_examples
+            }
+
+            feature_data.append(feature_info)
+
+        return feature_data
+
+# Keep the original plot_feature_grid for saving to disk but make it use the data function
+def plot_feature_grid(autoencoder, test_feats, examples, layer_idx, num_features=25, run_folder=None):
+    """Create a feature grid visualization for sparse autoencoder features
+
+    Args:
+        autoencoder: Trained autoencoder model
+        test_feats: Test features [batch_size, hidden_dim]
+        examples: List of example dictionaries with 'text' field
+        layer_idx: Layer index
+        num_features: Number of top features to display in the grid
+        run_folder: Folder to save the visualization to
+
+    Returns:
+        fig: Matplotlib figure object with the feature grid
+    """
+    # Get feature data
+    feature_data = get_feature_grid_data(autoencoder, test_feats, examples, layer_idx, num_features)
+
+    # Create a grid figure
+    fig_width = 15
+    fig_height = max(15, num_features * 0.6)  # Adjust height based on number of features
+    fig, axs = plt.subplots(len(feature_data), 1, figsize=(fig_width, fig_height))
+
+    if len(feature_data) == 1:
+        axs = [axs]  # Make axs always iterable
+
+    # For each feature, show the most activating examples
+    for i, feature_info in enumerate(feature_data):
+        ax = axs[i]
+        feature_idx = feature_info['feature_idx']
+        mean_activation = feature_info['mean_activation']
+        top_examples = feature_info['top_examples']
+
+        # Display feature information
+        feature_text = f"Feature {feature_idx} | Mean Activation: {mean_activation:.4f}\n"
+
+        # Add top examples
+        for j, example in enumerate(top_examples):
+            # Truncate the text if it's too long
+            text = example['text']
+            if len(text) > 100:
+                text = text[:97] + "..."
+
+            feature_text += f"Example {j+1} (Act: {example['activation']:.4f}): {text}\n"
+
+        # If no examples found
+        if not top_examples:
+            feature_text += "No examples with positive activation found for this feature."
+
+        ax.text(0.01, 0.5, feature_text, wrap=True, fontsize=10, va='center')
+        ax.axis('off')
+
+    plt.tight_layout()
+
+    # Save the figure if run_folder is provided
+    if run_folder:
+        layer_save_dir = os.path.join(run_folder, "layers", str(layer_idx))
+        os.makedirs(layer_save_dir, exist_ok=True)
+        save_graph(fig, os.path.join(layer_save_dir, "feature_grid.png"))
+
+    return fig
+
+def create_feature_activation_dataframe(autoencoder, test_feats, examples, feature_idx, top_k=10):
+    """Create a DataFrame with examples that most strongly activate a specific feature
+    
+    Args:
+        autoencoder: Trained autoencoder model
+        test_feats: Test features [batch_size, hidden_dim]
+        examples: List of example dictionaries
+        feature_idx: Index of the feature to analyze
+        top_k: Number of top examples to include
+        
+    Returns:
+        df: DataFrame with top activating examples
+    """
+    top_examples = get_top_activating_examples(
+        autoencoder, test_feats, examples, feature_idx, top_k=top_k
+    )
+    
+    # Create DataFrame
+    if top_examples:
+        df = pd.DataFrame(top_examples)
+        # Round activation values
+        df['activation'] = df['activation'].map("{:.4f}".format)
+        return df
+    else:
+        return pd.DataFrame(columns=['text', 'activation'])

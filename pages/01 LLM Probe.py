@@ -51,7 +51,11 @@ from utils.sparse_autoencoder.analysis import (
     plot_gini_coefficient_by_layer,
     plot_reconstruction_error_by_layer,
     plot_activation_distribution,
-    plot_neuron_activations
+    plot_neuron_activations,
+    plot_feature_grid,
+    get_feature_grid_data,
+    get_top_activating_examples,
+    create_feature_activation_dataframe
 )
 from utils.ui import (
     create_model_tracker,
@@ -411,7 +415,7 @@ st.markdown("""
 
 # Create Main Tabs
 main_tabs = st.tabs(
-    ["Probe Analysis", "Sparse Autoencoder Analysis (Coming Soon)"])
+    ["Probe Analysis", "Sparse Autoencoder Analysis"])
 
 # Setup Probe Analysis Sub-Tabs and placeholders
 with main_tabs[0]:
@@ -440,12 +444,13 @@ with main_tabs[0]:
 
 # Setup Sparse Autoencoder Analysis Sub-Tabs and placeholders
 with main_tabs[1]:
-    autoencoder_tabs = st.tabs(["Sparsity Analysis", "Activation Distribution", "Reconstruction Error", "Data View"])
+    autoencoder_tabs = st.tabs(["Sparsity Analysis", "Activation Distribution", "Reconstruction Error", "Feature Grid", "Data View"])
 
     sparsity_tab_container = autoencoder_tabs[0]
     distribution_tab_container = autoencoder_tabs[1]
     reconstruction_tab_container = autoencoder_tabs[2]
-    autoencoder_data_tab_container = autoencoder_tabs[3]
+    feature_grid_tab_container = autoencoder_tabs[3]
+    autoencoder_data_tab_container = autoencoder_tabs[4]
 
     # Define empty containers within the sub-tabs for later population
     with sparsity_tab_container:
@@ -455,6 +460,10 @@ with main_tabs[1]:
 
     with distribution_tab_container:
         activation_plot = st.empty()
+
+    with feature_grid_tab_container:
+        feature_grid_info = st.empty()
+        feature_grid_placeholder = st.empty()
 
     with reconstruction_tab_container:
         reconstruction_plot = st.empty()
@@ -980,6 +989,128 @@ if run_button:
                                         run_folder=run_folder
                                     )
                                     st.pyplot(fig_top)
+
+                    # Feature Grid Tab
+                    with feature_grid_tab_container:
+                        feature_grid_info.markdown("""
+                        ## Feature Grid Visualization
+
+                        This tab shows a feature grid visualization for the sparse autoencoder features. For each layer, you can see:
+
+                        - The most active features (neurons) in the sparse autoencoder
+                        - For each feature, examples from the dataset that most strongly activate that feature
+                        - The activation strength for each example
+
+                        This visualization is inspired by Anthropic's feature grid visualizations used to analyze interpretable features in neural networks.
+                        """)
+
+                        # Create tabs for each layer
+                        feature_grid_layer_tabs = st.tabs([f"Layer {i}" for i in range(len(results['autoencoders']))])
+
+                        # For each layer, show feature grid
+                        for i, feature_grid_layer_tab in enumerate(feature_grid_layer_tabs):
+                            with feature_grid_layer_tab:
+                                autoencoder = results['autoencoders'][i]
+                                test_feats = test_hidden_states[:, i, :]
+
+                                # Set number of features to display
+                                num_features_slider = st.slider(
+                                    f"Number of features to display for Layer {i}",
+                                    min_value=5,
+                                    max_value=50,
+                                    value=15,
+                                    step=5
+                                )
+
+                                # Create feature grid visualization using direct data rather than images
+                                st.subheader(f"Feature Grid - Layer {i}")
+
+                                # Get feature data directly
+                                feature_data = get_feature_grid_data(
+                                    autoencoder,
+                                    test_feats,
+                                    test_examples,  # Use test examples for visualizing features
+                                    i,
+                                    num_features=num_features_slider
+                                )
+
+                                # Display each feature in a clean, text-based format
+                                for feature_info in feature_data:
+                                    feature_idx = feature_info['feature_idx']
+                                    mean_activation = feature_info['mean_activation']
+                                    top_examples = feature_info['top_examples']
+
+                                    with st.expander(f"Feature {feature_idx} | Mean Activation: {mean_activation:.4f}", expanded=False):
+                                        if top_examples:
+                                            for j, example in enumerate(top_examples):
+                                                st.markdown(f"**Example {j+1}** (Activation: {example['activation']:.4f})")
+                                                st.markdown(f"> {example['text']}")
+                                                st.divider()
+                                        else:
+                                            st.info("No examples with positive activation found for this feature.")
+
+                                # Add feature exploration section
+                                st.subheader(f"Feature Explorer - Layer {i}")
+
+                                # Forward pass through autoencoder to get activations
+                                with torch.no_grad():
+                                    _, h_activated, _ = autoencoder(test_feats)
+                                    mean_activations = torch.mean(h_activated, dim=0).cpu().numpy()
+                                    feature_indices = np.argsort(mean_activations)[::-1][:100]  # Top 100 features by mean activation
+
+                                # Let user select a specific feature to explore
+                                col1, col2 = st.columns([1, 3])
+                                with col1:
+                                    selected_feature = st.selectbox(
+                                        f"Select feature for Layer {i}",
+                                        options=feature_indices,
+                                        format_func=lambda x: f"Feature {x} (Act: {mean_activations[x]:.4f})"
+                                    )
+
+                                with col2:
+                                    # Number of examples to show
+                                    num_examples = st.slider(
+                                        f"Number of examples for Feature {selected_feature}",
+                                        min_value=3,
+                                        max_value=20,
+                                        value=10
+                                    )
+
+                                # Get examples that most activate the selected feature
+                                feature_examples_df = create_feature_activation_dataframe(
+                                    autoencoder,
+                                    test_feats,
+                                    test_examples,
+                                    selected_feature,
+                                    top_k=num_examples
+                                )
+
+                                # Display examples in a table
+                                if not feature_examples_df.empty:
+                                    st.dataframe(feature_examples_df, use_container_width=True)
+                                else:
+                                    st.info(f"No examples with positive activation found for Feature {selected_feature}")
+
+                        with st.expander("What does this visualization show?", expanded=False):
+                            st.markdown("""
+                            ### Understanding Feature Grids
+
+                            Feature grid visualizations help reveal what patterns each neuron in the sparse autoencoder has learned to detect:
+
+                            - Each row represents a feature (neuron) in the sparse autoencoder's latent space
+                            - For each feature, we show examples from the dataset that most strongly activate that feature
+                            - The activation value indicates how strongly the feature responds to that input
+
+                            ### Interpreting the Results
+
+                            By examining patterns across examples that activate the same feature, you can often identify what concept or pattern that feature has learned to detect. For example:
+
+                            - A feature might activate strongly on examples containing specific topics (e.g., mathematics, geography)
+                            - A feature might detect specific linguistic patterns or structures
+                            - Some features might correspond to truth/falsehood indicators or other semantic properties
+
+                            The Feature Explorer allows you to dive deeper into individual features to see more examples and test hypotheses about what concepts they might represent.
+                            """)
 
             # --- Save per-layer visualizations for future access ---
             add_log("Saving per-layer visualizations...")
