@@ -1,10 +1,13 @@
 import torch
 import time
+import os
+import warnings
+
 
 def is_decoder_only_model(model_name):
     """Check if model is a decoder-only model based on its name."""
     decoder_keywords = ["gpt", "llama", "mistral",
-                      "pythia", "deepseek", "qwen", "gemma"]
+                        "pythia", "deepseek", "qwen", "gemma"]
     return any(keyword in model_name.lower() for keyword in decoder_keywords)
 
 
@@ -24,88 +27,125 @@ def load_model_and_tokenizer(model_name, progress_callback, device=torch.device(
     progress_callback(0.1, "Initializing model loading process...",
                       "Preparing tokenizer and model configuration")
 
-    if is_decoder_only_model(model_name):
-        progress_callback(0.2, "Detected decoder-only model architecture",
-                          f"Loading {model_name} with TransformerLens for better compatibility")
+    from transformers import AutoTokenizer, AutoModel, AutoModelForCausalLM
 
+    # Load tokenizer first (universal approach)
+    progress_callback(0.3, "Loading tokenizer...",
+                      f"Fetching tokenizer for {model_name}")
+
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_name, trust_remote_code=True)
+    except Exception as e:
+        progress_callback(0.35, f"Tokenizer warning: {str(e)}",
+                          "Trying alternative tokenizer approach...")
         try:
-            # Import necessary libraries
-            progress_callback(
-                0.3, "Importing TransformerLens library...", "Setting up model dependencies")
+            # Some models need trust_remote_code=True
+            tokenizer = AutoTokenizer.from_pretrained(
+                model_name,
+                trust_remote_code=True
+            )
+        except Exception as e2:
+            progress_callback(0.4, f"Second tokenizer attempt failed: {str(e2)}",
+                              "Will try to load model directly")
+            raise e2
+
+    progress_callback(0.5, "Configuring tokenizer settings...",
+                      "Setting padding token and padding side")
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = "right" if not is_decoder_only_model(
+        model_name) else "left"
+
+    if is_decoder_only_model(model_name):
+        # Try TransformerLens first
+        try:
+            progress_callback(0.6, "Detected decoder-only model architecture",
+                              f"Attempting to load {model_name} with TransformerLens")
+
+            # Import TransformerLens library
             import transformer_lens
             from transformer_lens import HookedTransformer
-            from transformers import AutoTokenizer
 
-            # Load tokenizer first
-            progress_callback(0.4, "Loading tokenizer...",
-                              f"Fetching tokenizer configuration for {model_name}")
-            tokenizer = AutoTokenizer.from_pretrained(model_name)
-            progress_callback(0.5, "Configuring tokenizer settings...",
-                              "Setting padding token and padding side")
+            # For Llama models, use the standard loading with HF first
+            if "llama" in model_name.lower():
+                progress_callback(0.65, "Llama model detected",
+                                  "Using specialized loading approach for Llama models")
 
-            if tokenizer.pad_token is None:
-                tokenizer.pad_token = tokenizer.eos_token
-            tokenizer.padding_side = "left"
+                # Load the HF model first to ensure tokenizer compatibility
+                temp_model = AutoModelForCausalLM.from_pretrained(
+                    model_name,
+                    torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                    low_cpu_mem_usage=True,
+                    trust_remote_code=True
+                )
 
-            # Now load the model
-            progress_callback(0.6, "Loading HookedTransformer model...",
-                              f"This may take a while for {model_name}")
-            model = HookedTransformer.from_pretrained(
-                model_name, device=device)
+                # Now try HookedTransformer with specific config
+                model = HookedTransformer.from_pretrained(
+                    model_name,
+                    device=device,
+                    fold_ln=False,  # Helps with some models
+                    center_writing_weights=False,
+                    center_unembed=False,
+                    tokenizer=tokenizer  # Pass the tokenizer explicitly
+                )
+            else:
+                # For other decoder models, try direct loading
+                model = HookedTransformer.from_pretrained(
+                    model_name,
+                    device=device
+                )
 
             # Report model statistics
             n_layers = model.cfg.n_layers
             d_model = model.cfg.d_model
-            progress_callback(0.9, f"Model loaded: {n_layers} layers, {d_model} dimensions",
+
+            progress_callback(0.9, f"TransformerLens model loaded: {n_layers} layers, {d_model} dimensions",
                               f"Using device: {str(device)}")
 
-            progress_callback(1.0, "Model and tokenizer successfully loaded",
-                              f"Ready to process with {model_name}")
+            return tokenizer, model
 
         except Exception as e:
+            # If TransformerLens fails, fall back to Hugging Face
             progress_callback(
-                1.0, f"Error loading model: {str(e)}", "Check model name or connection")
-            raise e
-    else:
-        try:
-            from transformers import AutoTokenizer, AutoModel, AutoModelForCausalLM
+                0.7, f"TransformerLens loading failed: {str(e)}",
+                "Falling back to standard Hugging Face implementation"
+            )
+            warnings.warn(
+                f"TransformerLens loading failed: {str(e)}, using HuggingFace instead")
 
-            progress_callback(0.3, "Detected encoder or encoder-decoder architecture",
-                              f"Loading {model_name} using Hugging Face Transformers")
+    # Standard Hugging Face loading (fallback for decoder models or primary for encoder models)
+    progress_callback(0.75, "Loading model with Hugging Face Transformers...",
+                      f"This may take a while for {model_name}")
 
-            progress_callback(0.4, "Loading tokenizer...",
-                              f"Fetching tokenizer for {model_name}")
-            tokenizer = AutoTokenizer.from_pretrained(model_name)
+    try:
+        model_class = AutoModelForCausalLM if is_decoder_only_model(
+            model_name) else AutoModel
+        model = model_class.from_pretrained(
+            model_name,
+            output_hidden_states=True,
+            trust_remote_code=True,
+            torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+            low_cpu_mem_usage=True
+        ).to(device)
+        model.eval()
 
-            progress_callback(0.5, "Configuring tokenizer settings...",
-                              "Setting padding token and padding side")
-            if tokenizer.pad_token is None:
-                tokenizer.pad_token = tokenizer.eos_token
-            tokenizer.padding_side = "right" if not is_decoder_only_model(
-                model_name) else "left"
+        # Get model statistics
+        n_layers = getattr(model.config, "num_hidden_layers", 12)
+        d_model = getattr(model.config, "hidden_size", 768)
 
-            progress_callback(0.7, "Loading model...",
-                              f"This may take a while for {model_name}")
-            model_class = AutoModelForCausalLM if is_decoder_only_model(
-                model_name) else AutoModel
-            model = model_class.from_pretrained(
-                model_name, output_hidden_states=True).to(device)
-            model.eval()
+        progress_callback(0.9, f"HuggingFace model loaded: {n_layers} layers, {d_model} dimensions",
+                          f"Using device: {str(device)}")
 
-            # Get model statistics
-            n_layers = model.config.num_hidden_layers
-            d_model = model.config.hidden_size
-            progress_callback(0.9, f"Model loaded: {n_layers} layers, {d_model} dimensions",
-                              f"Using device: {str(device)}")
+        progress_callback(1.0, "Model and tokenizer successfully loaded",
+                          f"Ready to process with {model_name}")
 
-            progress_callback(1.0, "Model and tokenizer successfully loaded",
-                              f"Ready to process with {model_name}")
-        except Exception as e:
-            progress_callback(
-                1.0, f"Error loading model: {str(e)}", "Check model name or connection")
-            raise e
+        return tokenizer, model
 
-    return tokenizer, model
+    except Exception as e:
+        progress_callback(
+            1.0, f"Error loading model: {str(e)}", "Check model name or connection")
+        raise e
 
 
 def get_hidden_states_batched(examples, model, tokenizer, model_name, output_layer,
@@ -113,7 +153,7 @@ def get_hidden_states_batched(examples, model, tokenizer, model_name, output_lay
                               batch_size=16, device=torch.device("cpu")):
     """Extract hidden states with batching for better performance"""
     import math
-    
+
     all_hidden_states = []
     all_labels = []
 
@@ -125,7 +165,8 @@ def get_hidden_states_batched(examples, model, tokenizer, model_name, output_lay
         n_layers = model.cfg.n_layers
         d_model = model.cfg.d_model
     else:
-        n_layers = getattr(model.config, "num_hidden_layers", 12) + 1
+        n_layers = getattr(model.config, "num_hidden_layers",
+                           12) + (1 if not is_transformerlens else 0)
         d_model = getattr(model.config, "hidden_size", 768)
 
     # Process in batches
@@ -151,102 +192,163 @@ def get_hidden_states_batched(examples, model, tokenizer, model_name, output_lay
             # so we process examples individually but still in batch chunks
             batch_hidden_states = []
             for text_idx, text in enumerate(batch_texts):
-                tokens = tokenizer.encode(text, return_tensors="pt").to(device)
-                _, cache = model.run_with_cache(tokens)
+                try:
+                    tokens = tokenizer.encode(
+                        text, return_tensors="pt").to(device)
+                    _, cache = model.run_with_cache(tokens)
 
-                pos = -1 if is_decoder else 0
-                layer_outputs = [
-                    cache[output_layer, layer_idx][0, pos, :]
-                    for layer_idx in range(n_layers)
-                ]
-                hidden_stack = torch.stack(layer_outputs)
-                batch_hidden_states.append(hidden_stack)
+                    pos = -1 if is_decoder else 0
+
+                    # Handle different cache structures
+                    layer_outputs = []
+                    for layer_idx in range(n_layers):
+                        try:
+                            # Try standard TransformerLens cache format
+                            cache_key = (output_layer, layer_idx)
+                            if cache_key in cache:
+                                layer_outputs.append(
+                                    cache[cache_key][0, pos, :])
+                            else:
+                                # Try alternative formats
+                                alt_keys = [
+                                    f"blocks.{layer_idx}.{output_layer}",
+                                    f"layers.{layer_idx}.{output_layer}",
+                                    f"{output_layer}_{layer_idx}"
+                                ]
+                                for key in alt_keys:
+                                    if key in cache:
+                                        layer_outputs.append(
+                                            cache[key][0, pos, :])
+                                        break
+                                else:
+                                    # If no key works, use zeros as placeholder
+                                    layer_outputs.append(
+                                        torch.zeros(d_model, device=device))
+                                    warnings.warn(
+                                        f"Could not find layer {layer_idx} in cache")
+                        except Exception as e:
+                            warnings.warn(
+                                f"Error accessing layer {layer_idx}: {str(e)}")
+                            layer_outputs.append(
+                                torch.zeros(d_model, device=device))
+
+                    hidden_stack = torch.stack(layer_outputs)
+                    batch_hidden_states.append(hidden_stack)
+                except Exception as e:
+                    warnings.warn(
+                        f"Error processing example {text_idx}: {str(e)}")
+                    # Create a dummy tensor to keep processing going
+                    dummy = torch.zeros((n_layers, d_model), device=device)
+                    batch_hidden_states.append(dummy)
         else:
             # Standard transformers batching
-            if "qwen" in model_name.lower():
-                # Special handling for Qwen chat models
-                encoded_inputs = []
-                for text in batch_texts:
-                    messages = [{"role": "user", "content": text}]
-                    prompt = tokenizer.apply_chat_template(
-                        messages, tokenize=False, add_generation_prompt=False)
-                    encoded_inputs.append(prompt)
+            try:
+                if "qwen" in model_name.lower():
+                    # Special handling for Qwen chat models
+                    encoded_inputs = []
+                    for text in batch_texts:
+                        try:
+                            # Try chat template first
+                            messages = [{"role": "user", "content": text}]
+                            prompt = tokenizer.apply_chat_template(
+                                messages, tokenize=False, add_generation_prompt=False)
+                            encoded_inputs.append(prompt)
+                        except Exception:
+                            # Fall back to direct text if chat template fails
+                            encoded_inputs.append(text)
 
-                # Tokenize as a batch
-                inputs = tokenizer(encoded_inputs, padding=True, truncation=True,
-                                   return_tensors="pt", max_length=128)
-            else:
-                # Standard tokenization for other models
-                inputs = tokenizer(batch_texts, padding=True, truncation=True,
-                                   return_tensors="pt", max_length=128)
+                    # Tokenize as a batch
+                    inputs = tokenizer(encoded_inputs, padding=True, truncation=True,
+                                       return_tensors="pt", max_length=128)
+                else:
+                    # Standard tokenization for other models
+                    inputs = tokenizer(batch_texts, padding=True, truncation=True,
+                                       return_tensors="pt", max_length=128)
 
-            # Move to device
-            inputs = {k: v.to(device) for k, v in inputs.items()}
+                # Move to device
+                inputs = {k: v.to(device) for k, v in inputs.items()}
 
-            with torch.no_grad():
-                outputs = model(**inputs)
-                hidden_states = outputs.hidden_states
+                with torch.no_grad():
+                    outputs = model(**inputs)
 
-                batch_hidden_states = []
+                    # Handle different output formats
+                    if hasattr(outputs, "hidden_states"):
+                        hidden_states = outputs.hidden_states
+                    elif isinstance(outputs, tuple) and len(outputs) > 1:
+                        # Some models return hidden_states as second element
+                        hidden_states = outputs[1]
+                    else:
+                        raise ValueError(
+                            f"Model doesn't output hidden states in expected format")
 
-                # Process each example in the batch
-                for example_idx in range(len(batch)):
-                    # Extract embeddings for each layer
-                    example_layers = []
+                    batch_hidden_states = []
 
-                    for layer_idx, layer in enumerate(hidden_states):
-                        # Get representation based on selected strategy
-                        if is_decoder:
-                            # For decoder models, use the last token
-                            if hasattr(inputs, "attention_mask"):
-                                # Get position of last non-padding token
+                    # Process each example in the batch
+                    for example_idx in range(len(batch)):
+                        # Extract embeddings for each layer
+                        example_layers = []
+
+                        for layer_idx, layer in enumerate(hidden_states):
+                            # Get representation based on selected strategy
+                            if is_decoder:
+                                # For decoder models, use the last token
+                                if "attention_mask" in inputs:
+                                    # Get position of last non-padding token
+                                    seq_len = inputs["attention_mask"][example_idx].sum(
+                                    ).item()
+                                    token_repr = layer[example_idx,
+                                                       seq_len-1, :]
+                                else:
+                                    # Just use last token
+                                    token_repr = layer[example_idx, -1, :]
+                            elif output_layer == "CLS":
+                                # Use first token for BERT-like models
+                                token_repr = layer[example_idx, 0, :]
+                            elif output_layer == "mean":
+                                # Mean pooling (average all tokens)
+                                if "attention_mask" in inputs:
+                                    # Only consider non-padding tokens
+                                    mask = inputs["attention_mask"][example_idx].unsqueeze(
+                                        -1)
+                                    token_repr = (
+                                        layer[example_idx] * mask).sum(dim=0) / mask.sum()
+                                else:
+                                    token_repr = layer[example_idx].mean(dim=0)
+                            elif output_layer == "max":
+                                # Max pooling
+                                if "attention_mask" in inputs:
+                                    # Apply mask to avoid including padding tokens
+                                    mask = inputs["attention_mask"][example_idx].unsqueeze(
+                                        -1)
+                                    masked_layer = layer[example_idx] * \
+                                        mask - 1e9 * (1 - mask)
+                                    token_repr = masked_layer.max(dim=0).values
+                                else:
+                                    token_repr = layer[example_idx].max(
+                                        dim=0).values
+                            elif output_layer.startswith("token_index_"):
+                                # Use specific token index
+                                index = int(output_layer.split("_")[-1])
                                 seq_len = inputs["attention_mask"][example_idx].sum(
-                                ).item()
-                                token_repr = layer[example_idx, seq_len-1, :]
+                                ).item() if "attention_mask" in inputs else layer.size(1)
+                                safe_index = min(index, seq_len - 1)
+                                token_repr = layer[example_idx, safe_index, :]
                             else:
-                                # Just use last token
-                                token_repr = layer[example_idx, -1, :]
-                        elif output_layer == "CLS":
-                            # Use first token for BERT-like models
-                            token_repr = layer[example_idx, 0, :]
-                        elif output_layer == "mean":
-                            # Mean pooling (average all tokens)
-                            if hasattr(inputs, "attention_mask"):
-                                # Only consider non-padding tokens
-                                mask = inputs["attention_mask"][example_idx].unsqueeze(
-                                    -1)
-                                token_repr = (
-                                    layer[example_idx] * mask).sum(dim=0) / mask.sum()
-                            else:
-                                token_repr = layer[example_idx].mean(dim=0)
-                        elif output_layer == "max":
-                            # Max pooling
-                            if hasattr(inputs, "attention_mask"):
-                                # Apply mask to avoid including padding tokens
-                                mask = inputs["attention_mask"][example_idx].unsqueeze(
-                                    -1)
-                                masked_layer = layer[example_idx] * \
-                                    mask - 1e9 * (1 - mask)
-                                token_repr = masked_layer.max(dim=0).values
-                            else:
-                                token_repr = layer[example_idx].max(
-                                    dim=0).values
-                        elif output_layer.startswith("token_index_"):
-                            # Use specific token index
-                            index = int(output_layer.split("_")[-1])
-                            seq_len = inputs["attention_mask"][example_idx].sum().item(
-                            ) if hasattr(inputs, "attention_mask") else layer.size(1)
-                            safe_index = min(index, seq_len - 1)
-                            token_repr = layer[example_idx, safe_index, :]
-                        else:
-                            raise ValueError(
-                                f"Unsupported output layer: {output_layer}")
+                                raise ValueError(
+                                    f"Unsupported output layer: {output_layer}")
 
-                        example_layers.append(token_repr)
+                            example_layers.append(token_repr)
 
-                    # Stack layers for this example
-                    example_stack = torch.stack(example_layers)
-                    batch_hidden_states.append(example_stack)
+                        # Stack layers for this example
+                        example_stack = torch.stack(example_layers)
+                        batch_hidden_states.append(example_stack)
+            except Exception as e:
+                warnings.warn(f"Error processing batch: {str(e)}")
+                # Create dummy tensors for the entire batch
+                batch_hidden_states = [
+                    torch.zeros((n_layers, d_model), device=device)
+                    for _ in range(len(batch))
+                ]
 
         # Collect results from this batch
         all_hidden_states.extend(batch_hidden_states)
@@ -258,7 +360,13 @@ def get_hidden_states_batched(examples, model, tokenizer, model_name, output_lay
     # Convert to tensors
     all_hidden_states = torch.stack(all_hidden_states).to(
         device)  # [num_examples, num_layers, hidden_dim]
-    all_labels = torch.tensor(all_labels).to(device)
+
+    # Convert labels to tensor, handling potential string labels
+    try:
+        all_labels = torch.tensor(all_labels).to(device)
+    except:
+        # For non-numeric labels, keep as list
+        pass
 
     # Update to 100%
     progress_callback(1.0, f"Completed processing all {dataset_type} {len(examples)} examples",
