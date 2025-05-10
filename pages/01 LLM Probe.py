@@ -224,7 +224,7 @@ with col1:
         'Parameter': ['Model', 'Dataset', 'Control Tasks', 'Output Layer', 'Device'],
         'Value': [model_name, dataset_source, str(use_control_tasks), output_layer, str(device)]
     })
-    st.table(config_df)
+    st.dataframe(config_df, hide_index=True)
 
 with col2:
     st.markdown("""
@@ -503,8 +503,8 @@ if run_button:
         })], ignore_index=True)
 
         # Display the category statistics
-        category_stats_placeholder.markdown("#### Dataset Category Distribution")
-        category_stats_placeholder.dataframe(category_stats_df, hide_index=True)
+        # category_stats_placeholder.markdown("#### Dataset Category Distribution")
+        # category_stats_placeholder.dataframe(category_stats_df, hide_index=True)
 
         # Format for the stats table as well
         category_stats = []
@@ -517,7 +517,7 @@ if run_button:
             category_stats.append(f"{category_name}: {count} examples")
 
         # Join all category stats with newlines
-        categories_str = "\n".join(category_stats)
+        categories_str = " | ".join(category_stats)
 
         # Update stats display
         stats_df = pd.DataFrame({
