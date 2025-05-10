@@ -365,59 +365,85 @@ def train_sparse_autoencoder(
     return history
 
 
-def visualize_feature_grid(model: SparseAutoencoder, top_k: int = 100, n_cols: int = 10) -> plt.Figure:
+def visualize_feature_grid(model: SparseAutoencoder, top_k: int = 25, n_cols: int = 5) -> plt.Figure:
     """
     Visualize the features learned by the sparse autoencoder decoder.
-    
+
     Args:
         model: Trained SparseAutoencoder model
         top_k: Number of features to visualize
         n_cols: Number of columns in the grid
-        
+
     Returns:
         Matplotlib figure with the feature grid
     """
     with torch.no_grad():
         # Get the decoder weights
         decoder_weights = model.decoder.weight.cpu().t().numpy()
-        
+
         # Get feature norms
         feature_norms = np.linalg.norm(decoder_weights, axis=0)
-        
+
         # Get indices of top-k features by norm
         if top_k > decoder_weights.shape[1]:
             top_k = decoder_weights.shape[1]
-        
+
         top_indices = np.argsort(-feature_norms)[:top_k]
-        
+
         # Create a grid of features
         n_rows = (top_k + n_cols - 1) // n_cols
-        
-        fig, axes = plt.subplots(n_rows, n_cols, figsize=(n_cols*1.5, n_rows*1.5))
+
+        # Create a larger figure to make features more visible
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(n_cols*3, n_rows*2.5))
+        if n_rows == 1 and n_cols == 1:
+            axes = np.array([axes])
         axes = axes.flatten()
-        
+
         for i, idx in enumerate(top_indices):
             # Get the feature
             feature = decoder_weights[:, idx]
-            
-            # Reshape feature to make it visually interpretable if needed
-            # This depends on your data - for now, just show as a heatmap
-            
-            # Normalize for visualization
+
+            # Reshape feature vector to be more rectangular for better visualization
+            # Calculate dimensions for a more square-like shape
+            dim_size = int(np.sqrt(len(feature)))
+            # If perfect square, use it; otherwise, make a rectangle
+            if dim_size * dim_size == len(feature):
+                feature_2d = feature.reshape(dim_size, dim_size)
+            else:
+                # Find a suitable width that's not too narrow
+                width = min(32, len(feature))
+                height = (len(feature) + width - 1) // width  # Ceiling division
+                # Pad the feature to fit the dimensions
+                padded_feature = np.pad(feature, (0, width * height - len(feature)), 'constant')
+                feature_2d = padded_feature.reshape(height, width)
+
+            # Normalize for visualization with a min-max scale for better contrast
             vmax = np.max(np.abs(feature))
+            if vmax == 0:  # Avoid division by zero
+                vmax = 1
             vmin = -vmax
-            
-            # Display the feature
-            im = axes[i].imshow(feature.reshape(1, -1), cmap='RdBu_r', vmin=vmin, vmax=vmax)
-            axes[i].set_title(f"F{idx}")
+
+            # Display the feature with a colorbar
+            im = axes[i].imshow(feature_2d, cmap='RdBu_r', vmin=vmin, vmax=vmax, interpolation='nearest')
+            axes[i].set_title(f"Feature {idx}")
             axes[i].axis('off')
-        
+
+            # Add a small colorbar to each subplot
+            plt.colorbar(im, ax=axes[i], fraction=0.046, pad=0.04)
+
         # Hide any unused subplots
         for i in range(top_k, len(axes)):
             axes[i].axis('off')
-        
-        plt.tight_layout()
-        
+
+        # Add overall title and explanation
+        if top_k > 1:
+            plt.suptitle(f"Top {top_k} Sparse Autoencoder Features (by weight norm)", fontsize=16)
+            fig.text(0.5, 0.01,
+                    "Red = positive weights, Blue = negative weights\nEach feature represents a pattern that the SAE has learned",
+                    ha='center', fontsize=12)
+
+        plt.tight_layout(rect=[0, 0.03, 1, 0.97])  # Adjust layout to make room for suptitle
+
         return fig
 
 
