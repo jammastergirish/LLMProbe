@@ -39,9 +39,20 @@ def load_model_and_tokenizer(model_name, progress_callback, device=torch.device(
             # Load tokenizer first
             progress_callback(0.4, "Loading tokenizer...",
                               f"Fetching tokenizer configuration for {model_name}")
-            tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+            # Special handling for Llama models to address SentencePiece conversion issues
+            if 'llama' in model_name.lower():
+                try:
+                    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
+                except Exception as e:
+                    progress_callback(0.4, f"Error with fast tokenizer, trying with legacy tokenizer: {str(e)}",
+                                     "Attempting fallback")
+                    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
+            else:
+                tokenizer = AutoTokenizer.from_pretrained(model_name)
+
             progress_callback(0.5, "Configuring tokenizer settings...",
-                              "Setting padding token and padding side")
+                             "Setting padding token and padding side")
 
             if tokenizer.pad_token is None:
                 tokenizer.pad_token = tokenizer.eos_token
@@ -75,7 +86,17 @@ def load_model_and_tokenizer(model_name, progress_callback, device=torch.device(
 
             progress_callback(0.4, "Loading tokenizer...",
                               f"Fetching tokenizer for {model_name}")
-            tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+            # Special handling for Llama models to address SentencePiece conversion issues
+            if 'llama' in model_name.lower():
+                try:
+                    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
+                except Exception as e:
+                    progress_callback(0.4, f"Error with fast tokenizer, trying with legacy tokenizer: {str(e)}",
+                                    "Attempting fallback")
+                    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
+            else:
+                tokenizer = AutoTokenizer.from_pretrained(model_name)
 
             progress_callback(0.5, "Configuring tokenizer settings...",
                               "Setting padding token and padding side")
