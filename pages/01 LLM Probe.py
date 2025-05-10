@@ -550,7 +550,7 @@ if run_button:
                     "...") if train_examples else "N/A"
             ]
         })
-        stats_placeholder.table(stats_df)
+        stats_placeholder.dataframe(stats_df, hide_index=True)
 
         # Get the number of layers
         num_layers = get_num_layers(model)
