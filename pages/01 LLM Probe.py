@@ -125,7 +125,7 @@ if model_name == "custom":
 # DATASETS
 import glob
 csv_files = glob.glob('datasets/*.csv')
-dataset_options = ["truefalse", "truthfulqa", "boolq", "arithmetic", "fever", "custom"]
+dataset_options = ["truefalse", "truthfulqa", "boolq", "fever", "custom"]
 
 csv_dataset_options = [os.path.basename(f).replace('.csv', '') for f in csv_files]
 dataset_options.extend(csv_dataset_options)

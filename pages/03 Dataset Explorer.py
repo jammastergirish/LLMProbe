@@ -12,7 +12,7 @@ st.title("Dataset Explorer")
 st.sidebar.header("Dataset Selection")
 
 dataset_source = st.sidebar.selectbox("Dataset",
-                                      ["truefalse", "truthfulqa", "boolq", "arithmetic", "fever"])
+                                      ["truefalse", "truthfulqa", "boolq", "fever"])
 
 max_samples = st.sidebar.slider(
     "Max samples", min_value=10, max_value=500, value=100, step=10)
@@ -108,30 +108,6 @@ def load_dataset_samples(dataset_source, max_samples=100):
                     break
         except Exception as e:
             st.error(f"Error loading BoolQ: {str(e)}")
-
-    # Arithmetic dataset (synthetic)
-    if dataset_source == "arithmetic":
-        for i in range(min(max_samples, 100)):
-            a = random.randint(0, 100)
-            b = random.randint(0, 100)
-
-            # 50% chance of being true
-            if i % 2 == 0:
-                correct_sum = a + b
-                text = f"{a} + {b} = {correct_sum}"
-                label = 1
-            else:
-                incorrect_sum = a + b + \
-                    random.choice([i for i in range(-10, 11) if i != 0])
-                text = f"{a} + {b} = {incorrect_sum}"
-                label = 0
-
-            examples.append({
-                "dataset": "arithmetic",
-                "text": text,
-                "label": label,
-                "label_text": "True" if label == 1 else "False"
-            })
 
     # FEVER dataset
     if dataset_source == "fever":

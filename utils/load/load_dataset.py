@@ -221,43 +221,6 @@ def load_dataset(dataset_source, progress_callback, max_samples=5000, custom_fil
             progress_callback(0.85, f"Error loading TrueFalse: {str(e)}",
                               "Continuing with other datasets if selected")
 
-    if dataset_source in ["arithmetic", "all"]:
-        progress_callback(0.85, "Generating arithmetic dataset...",
-                          "Creating synthetic true/false arithmetic examples")
-
-        def generate_arithmetic_dataset(n=5000):
-            data = []
-            for i in range(n):
-                if i % 100 == 0:
-                    progress = 0.85 + (i / n) * 0.1
-                    progress_callback(progress, f"Generating arithmetic example {i+1}/{n}",
-                                      "Creating balanced true/false arithmetic statements")
-
-                a = random.randint(0, 100)
-                b = random.randint(0, 100)
-
-                # 50% chance of being true
-                if len(data) % 2 == 0:
-                    correct_sum = a + b
-                    text = f"{a} + {b} = {correct_sum}"
-                    label = 1
-                else:
-                    incorrect_sum = a + b + \
-                        random.choice([i for i in range(-10, 11) if i != 0])
-                    text = f"{a} + {b} = {incorrect_sum}"
-                    label = 0
-
-                data.append({"text": text, "label": label})
-
-            return data
-
-        arithmetic = generate_arithmetic_dataset(min(5000, max_samples))
-        start_examples = len(examples)
-        examples.extend(arithmetic)
-
-        progress_callback(0.95, f"Generated arithmetic dataset: {len(arithmetic)} examples",
-                          f"Added {len(arithmetic)} arithmetic examples")
-
     progress_callback(1.0, f"Prepared {len(examples)} labeled examples for probing",
                       f"Dataset preparation complete with {len(examples)} total examples")
     return examples
