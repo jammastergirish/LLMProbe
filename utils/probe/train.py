@@ -42,18 +42,46 @@ def train_and_evaluate_model(train_hidden_states, train_labels, test_hidden_stat
         criterion = torch.nn.BCELoss()
         optimizer = torch.optim.Adam(probe.parameters(), lr=lr)
 
+        # Print initial loss and accuracy
+        with torch.no_grad():
+            outputs = probe(train_feats)
+            loss = criterion(outputs, train_labels.float()).item()
+            preds = (outputs > 0.5).long()
+            acc = (preds == train_labels).float().mean().item()
+            output_msg = f"Layer {layer+1}/{num_layers} - Initial: loss={loss:.4f}, acc={acc:.4f}"
+            print(output_msg)
+
+            # Update UI if progress_callback is provided
+            if progress_callback and hasattr(progress_callback, 'add_training_output'):
+                progress_callback.add_training_output(output_msg)
+
         for epoch in range(epochs):
+            # Progress tracker update
             if epoch % 10 == 0 or epoch == epochs - 1:
                 epoch_progress = main_progress + (epoch / epochs) / num_layers
                 progress_callback(epoch_progress,
-                                  f"Layer {layer+1}/{num_layers}: Epoch {epoch+1}/{epochs}",
-                                  f"Training linear probe for truth detection")
+                                 f"Layer {layer+1}/{num_layers}: Epoch {epoch+1}/{epochs}",
+                                 f"Training linear probe for truth detection")
 
+            # Training step
             optimizer.zero_grad()
             outputs = probe(train_feats)
             loss = criterion(outputs, train_labels.float())
             loss.backward()
             optimizer.step()
+
+            # Print training progress every 10 epochs
+            if epoch % 10 == 0 or epoch == epochs - 1:
+                with torch.no_grad():
+                    current_loss = loss.item()
+                    preds = (outputs > 0.5).long()
+                    acc = (preds == train_labels).float().mean().item()
+                    output_msg = f"Layer {layer+1}/{num_layers} - Epoch {epoch+1}/{epochs}: loss={current_loss:.4f}, acc={acc:.4f}"
+                    print(output_msg)
+
+                    # Update UI if progress_callback is provided
+                    if progress_callback and hasattr(progress_callback, 'add_training_output'):
+                        progress_callback.add_training_output(output_msg)
 
         # Save trained probe
         probes.append(probe)

@@ -48,7 +48,8 @@ from utils.ui import (
     create_dataset_tracker,
     create_embedding_tracker,
     create_training_tracker,
-    create_autoencoder_tracker
+    create_autoencoder_tracker,
+    create_ui_print_function
 )
 from utils.visualizations import (
     plot_accuracy_by_layer,
@@ -179,6 +180,8 @@ if dataset_source == "custom":
         except Exception as e:
             st.sidebar.error(f"Error reading CSV: {str(e)}")
 
+use_linear_probe = st.sidebar.checkbox("Use Linear Probe", value=True)
+
 with st.sidebar.expander("⚙️ Linear Probe Options"):
     # Linear probe parameters
     probe_epochs = st.number_input(
@@ -191,7 +194,7 @@ with st.sidebar.expander("⚙️ Linear Probe Options"):
                           max_value=0.5, value=0.2, step=0.05)
     batch_size = st.number_input("Batch size", min_value=1, max_value=64, value=16,
                                  help="Larger batches are faster but use more memory. Use smaller values for large models.")
-                                 
+
 use_sparse_autoencoder = st.sidebar.checkbox("Use Sparse Autoencoder", value=False)
 
 # Sparse autoencoder specific options (only show if selected)
@@ -354,12 +357,13 @@ with progress_col2:
     dataset_detail = st.empty()
     st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown('#### 🧠 Train Models')
+    st.markdown('#### 🧠 Train Linear Probes')
     training_status = st.empty()
     training_status.markdown(
         '<span class="status-idle">Waiting to start...</span>', unsafe_allow_html=True)
     training_progress_bar = st.progress(0)
     training_progress_text = st.empty()
+    st.markdown('##### Training Details')
     training_detail = st.empty()
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -371,6 +375,7 @@ if 'use_sparse_autoencoder' in locals() and use_sparse_autoencoder:
         '<span class="status-idle">Waiting to start...</span>', unsafe_allow_html=True)
     autoencoder_progress_bar = st.progress(0)
     autoencoder_progress_text = st.empty()
+    st.markdown('##### Training Details')
     autoencoder_detail = st.empty()
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -691,15 +696,29 @@ if run_button:
         results = {}
         if use_linear_probe:
             training_tracker.update(0, "Training linear probes...", "Initializing")
-            probe_results = train_and_evaluate_model(
-                train_hidden_states, train_labels,
-                test_hidden_states, test_labels,
-                num_layers, use_control_tasks,
-                progress_callback=training_tracker.update,
-                epochs=probe_epochs, lr=probe_lr, device=device
-            )
+
+            # Ensure the training_detail container is visible and clear
+            training_detail.empty()
+
+            # Override the print function for probe training to capture output to UI
+            import builtins
+            original_print = builtins.print
+            builtins.print = create_ui_print_function(original_print, training_tracker)
+
+            try:
+                probe_results = train_and_evaluate_model(
+                    train_hidden_states, train_labels,
+                    test_hidden_states, test_labels,
+                    num_layers, use_control_tasks,
+                    progress_callback=training_tracker.update,
+                    epochs=probe_epochs, lr=probe_lr, device=device
+                )
+                results.update(probe_results)
+            finally:
+                # Restore original print function
+                builtins.print = original_print
+
             mark_complete(training_status)
-            results.update(probe_results)
 
         # Train sparse autoencoders if enabled
         if use_sparse_autoencoder and 'autoencoder_tracker' in locals():
@@ -708,25 +727,38 @@ if run_button:
             # Determine if using supervised or unsupervised autoencoders
             is_supervised = autoencoder_type == "Supervised"
 
-            autoencoder_results = train_and_evaluate_autoencoders(
-                train_hidden_states, train_labels,
-                test_hidden_states, test_labels,
-                num_layers, is_supervised,
-                progress_callback=autoencoder_tracker.update,
-                epochs=autoencoder_epochs, lr=autoencoder_lr,
-                l1_coeff=l1_coefficient, bottleneck_dim=bottleneck_dim,
-                tied_weights=tied_weights,
-                lambda_classify=lambda_classify if is_supervised and 'lambda_classify' in locals() else 1.0,
-                device=device
-            )
+            # Ensure the autoencoder_detail container is visible and clear
+            autoencoder_detail.empty()
+
+            # Override the print function for autoencoder training to capture output to UI
+            import builtins
+            original_print = builtins.print
+            builtins.print = create_ui_print_function(original_print, autoencoder_tracker)
+
+            try:
+                autoencoder_results = train_and_evaluate_autoencoders(
+                    train_hidden_states, train_labels,
+                    test_hidden_states, test_labels,
+                    num_layers, is_supervised,
+                    progress_callback=autoencoder_tracker.update,
+                    epochs=autoencoder_epochs, lr=autoencoder_lr,
+                    l1_coeff=l1_coefficient, bottleneck_dim=bottleneck_dim,
+                    tied_weights=tied_weights,
+                    lambda_classify=lambda_classify if is_supervised and 'lambda_classify' in locals() else 1.0,
+                    device=device
+                )
+
+                results['autoencoders'] = autoencoder_results['autoencoders']
+                results['reconstruction_errors'] = autoencoder_results['reconstruction_errors']
+                results['sparsity_values'] = autoencoder_results['sparsity_values']
+
+                if is_supervised and 'classification_accuracies' in autoencoder_results:
+                    results['autoencoder_accuracies'] = autoencoder_results['classification_accuracies']
+            finally:
+                # Restore original print function
+                builtins.print = original_print
 
             mark_complete(autoencoder_status)
-            results['autoencoders'] = autoencoder_results['autoencoders']
-            results['reconstruction_errors'] = autoencoder_results['reconstruction_errors']
-            results['sparsity_values'] = autoencoder_results['sparsity_values']
-
-            if is_supervised and 'classification_accuracies' in autoencoder_results:
-                results['autoencoder_accuracies'] = autoencoder_results['classification_accuracies']
 
         # 5. Plot and display results
         with main_tabs[0]:
