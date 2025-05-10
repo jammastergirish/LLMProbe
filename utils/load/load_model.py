@@ -36,33 +36,79 @@ def load_model_and_tokenizer(model_name, progress_callback, device=torch.device(
             from transformer_lens import HookedTransformer
             from transformers import AutoTokenizer
 
-            # Load tokenizer first
-            progress_callback(0.4, "Loading tokenizer...",
-                              f"Fetching tokenizer configuration for {model_name}")
+            # Check for Llama 3.2 model specifically
+            if 'llama-3.2' in model_name.lower():
+                # Import necessary modules for direct loading
+                from transformers import AutoModelForCausalLM
 
-            # Special handling for Llama models to address SentencePiece conversion issues
-            if 'llama' in model_name.lower():
-                try:
-                    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
-                except Exception as e:
-                    progress_callback(0.4, f"Error with fast tokenizer, trying with legacy tokenizer: {str(e)}",
-                                     "Attempting fallback")
-                    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
+                progress_callback(0.4, "Detected Llama 3.2 model - using special loading method",
+                                 "Avoiding TransformerLens tokenizer issues")
+
+                # Load tokenizer with trust_remote_code for better compatibility
+                tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+
+                if tokenizer.pad_token is None:
+                    tokenizer.pad_token = tokenizer.eos_token
+                tokenizer.padding_side = "left"
+
+                # Load the model directly with HuggingFace
+                progress_callback(0.6, "Loading model directly with HuggingFace...",
+                                 f"This may take a while for {model_name}")
+                hf_model = AutoModelForCausalLM.from_pretrained(
+                    model_name, trust_remote_code=True, output_hidden_states=True).to(device)
+
+                # Create a wrapper class to provide compatibility with HookedTransformer interface
+                class LlamaWrapper:
+                    def __init__(self, model, tokenizer, device):
+                        self.model = model
+                        self.tokenizer = tokenizer
+                        self.device = device
+                        # Create config attributes to match TransformerLens interface
+                        self.cfg = type('obj', (object,), {
+                            'n_layers': model.config.num_hidden_layers,
+                            'd_model': model.config.hidden_size
+                        })
+
+                    def eval(self):
+                        self.model.eval()
+                        return self
+
+                    def run_with_cache(self, tokens):
+                        # Forward pass with hidden states
+                        with torch.no_grad():
+                            outputs = self.model(tokens, output_hidden_states=True)
+
+                        # Create a cache compatible with TransformerLens interface
+                        cache = {}
+
+                        # Store hidden states for each layer in the expected format
+                        for layer_idx, hidden in enumerate(outputs.hidden_states[1:]):  # Skip embedding
+                            cache[('resid_post', layer_idx)] = hidden
+
+                        return outputs.logits, cache
+
+                # Create the wrapper
+                model = LlamaWrapper(hf_model, tokenizer, device)
+                progress_callback(0.8, "Created compatible wrapper for Llama 3.2", "Model loaded successfully")
             else:
+                # Standard loading path for other models
+                progress_callback(0.4, "Loading tokenizer...",
+                                  f"Fetching tokenizer configuration for {model_name}")
+
                 tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-            progress_callback(0.5, "Configuring tokenizer settings...",
-                             "Setting padding token and padding side")
+                progress_callback(0.5, "Configuring tokenizer settings...",
+                                 "Setting padding token and padding side")
 
-            if tokenizer.pad_token is None:
-                tokenizer.pad_token = tokenizer.eos_token
-            tokenizer.padding_side = "left"
+                if tokenizer.pad_token is None:
+                    tokenizer.pad_token = tokenizer.eos_token
+                tokenizer.padding_side = "left"
 
-            # Now load the model
-            progress_callback(0.6, "Loading HookedTransformer model...",
-                              f"This may take a while for {model_name}")
-            model = HookedTransformer.from_pretrained(
-                model_name, device=device)
+                # Load model with TransformerLens
+                progress_callback(0.6, "Loading HookedTransformer model...",
+                                  f"This may take a while for {model_name}")
+                model = HookedTransformer.from_pretrained(
+                    model_name, device=device)
 
             # Report model statistics
             n_layers = model.cfg.n_layers
