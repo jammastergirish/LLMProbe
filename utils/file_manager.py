@@ -165,3 +165,49 @@ def save_probe_weights(probes, filepath):
 def save_graph(fig, filepath):
     """Save a matplotlib figure as an image."""
     fig.savefig(filepath)
+
+
+def save_autoencoder_models(autoencoders, filepath):
+    """
+    Save the sparse autoencoder models to a file.
+
+    Args:
+        autoencoders (list): List of trained autoencoder models
+        filepath (str): The base file path to save the models to
+    """
+    # Create a dict to store all autoencoder metadata
+    autoencoders_data = {}
+
+    # Create the directory if it doesn't exist
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
+    # Extract and save each autoencoder
+    for i, autoencoder in enumerate(autoencoders):
+        # Save the entire model as a PyTorch file
+        model_filename = f"autoencoder_layer_{i}.pt"
+        model_path = os.path.join(os.path.dirname(filepath), model_filename)
+        torch.save(autoencoder.state_dict(), model_path)
+
+        # Extract metadata about this autoencoder
+        is_supervised = hasattr(autoencoder, 'classifier')
+
+        # Get dimensions from encoder weights
+        if hasattr(autoencoder, 'encoder') and hasattr(autoencoder.encoder, 'weight'):
+            input_dim = autoencoder.encoder.weight.shape[1]
+            bottleneck_dim = autoencoder.encoder.weight.shape[0]
+
+            # Create metadata entry
+            autoencoders_data[f"layer_{i}"] = {
+                "model_file": model_filename,
+                "model_type": autoencoder.__class__.__name__,
+                "is_supervised": is_supervised,
+                "input_dim": input_dim,
+                "bottleneck_dim": bottleneck_dim,
+                "bottleneck_ratio": float(bottleneck_dim) / float(input_dim),
+                "tied_weights": not hasattr(autoencoder, 'decoder') or autoencoder.tied_weights
+            }
+
+    # Save the metadata as JSON
+    metadata_path = f"{filepath}_metadata.json"
+    with open(metadata_path, 'w') as f:
+        json.dump(autoencoders_data, f, indent=4)

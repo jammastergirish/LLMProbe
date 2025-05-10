@@ -54,3 +54,10 @@ def create_training_tracker(training_status, training_progress_bar, training_pro
     tracker = ProgressTracker(training_status, training_progress_bar, training_progress_text, training_detail, add_log)
     tracker.stage_name = "Train Probe"
     return tracker
+
+
+def create_autoencoder_tracker(autoencoder_status, autoencoder_progress_bar, autoencoder_progress_text, autoencoder_detail, add_log):
+    """Create a progress tracker for sparse autoencoder training"""
+    tracker = ProgressTracker(autoencoder_status, autoencoder_progress_bar, autoencoder_progress_text, autoencoder_detail, add_log)
+    tracker.stage_name = "Train Sparse Autoencoder"
+    return tracker

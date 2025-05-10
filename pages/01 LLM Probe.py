@@ -17,7 +17,8 @@ from utils.file_manager import (
     save_json,
     save_graph,
     save_representations,
-    save_probe_weights
+    save_probe_weights,
+    save_autoencoder_models
 )
 from utils.memory import estimate_memory_requirements
 from utils.load import (
@@ -39,11 +40,15 @@ from utils.probe import (
     plot_confusion_matrix,
     plot_probe_weights
 )
+from utils.sparse_autoencoder import (
+    train_and_evaluate_autoencoders
+)
 from utils.ui import (
     create_model_tracker,
     create_dataset_tracker,
     create_embedding_tracker,
-    create_training_tracker
+    create_training_tracker,
+    create_autoencoder_tracker
 )
 from utils.visualizations import (
     plot_accuracy_by_layer,
@@ -174,10 +179,11 @@ if dataset_source == "custom":
         except Exception as e:
             st.sidebar.error(f"Error reading CSV: {str(e)}")
 
-with st.sidebar.expander("⚙️ Probe Options"):
-    train_epochs = st.number_input(
+with st.sidebar.expander("⚙️ Linear Probe Options"):
+    # Linear probe parameters
+    probe_epochs = st.number_input(
         "Training epochs", min_value=10, max_value=500, value=100)
-    learning_rate = st.number_input(
+    probe_lr = st.number_input(
         "Learning rate", min_value=0.0001, max_value=0.1, value=0.01, format="%.4f")
     max_samples = st.number_input(
         "Max samples per dataset", min_value=100, max_value=10000, value=5000)
@@ -185,6 +191,75 @@ with st.sidebar.expander("⚙️ Probe Options"):
                           max_value=0.5, value=0.2, step=0.05)
     batch_size = st.number_input("Batch size", min_value=1, max_value=64, value=16,
                                  help="Larger batches are faster but use more memory. Use smaller values for large models.")
+                                 
+use_sparse_autoencoder = st.sidebar.checkbox("Use Sparse Autoencoder", value=False)
+
+# Sparse autoencoder specific options (only show if selected)
+if use_sparse_autoencoder:
+    with st.sidebar.expander("🔄 Sparse Autoencoder Options"):
+        autoencoder_type = st.selectbox(
+            "Autoencoder Type",
+            ["Unsupervised", "Supervised"],
+            help="Unsupervised learns only from hidden states. Supervised also uses labels.")
+
+        # Add training parameters for autoencoders
+        autoencoder_epochs = st.number_input(
+            "Training Epochs",
+            min_value=10,
+            max_value=500,
+            value=100,
+            help="Number of epochs to train the sparse autoencoder"
+        )
+
+        autoencoder_lr = st.number_input(
+            "Learning Rate",
+            min_value=0.0001,
+            max_value=0.1,
+            value=0.001,
+            format="%.4f",
+            help="Learning rate for training the sparse autoencoder"
+        )
+
+        l1_coefficient = st.number_input(
+            "L1 Penalty Coefficient",
+            min_value=0.0001,
+            max_value=1.0,
+            value=0.01,
+            format="%.4f",
+            help="Controls sparsity level. Higher values = more sparsity.")
+
+        # Hidden layer neurons
+        use_same_dims = st.checkbox(
+            "Use Same Number of Neurons as Input",
+            value=True,
+            help="If checked, each layer's autoencoder will match its input dimension. Otherwise, specify a fixed size."
+        )
+
+        if not use_same_dims:
+            bottleneck_dim = st.number_input(
+                "Hidden Layer Neurons",
+                min_value=1,
+                max_value=10000,
+                value=100,
+                help="Fixed number of neurons to use in the hidden layer for all autoencoders."
+            )
+        else:
+            bottleneck_dim = 0  # Use input dimension
+
+        tied_weights = st.checkbox(
+            "Use Tied Weights",
+            value=True,
+            help="If checked, decoder weights are tied to encoder weights.")
+
+        # Additional parameters for supervised autoencoder
+        if autoencoder_type == "Supervised":
+            lambda_classify = st.slider(
+                "Classification Loss Weight",
+                min_value=0.1,
+                max_value=5.0,
+                value=1.0,
+                step=0.1,
+                help="Weight for classification loss. Higher values prioritize classification over reconstruction.")
 
 use_control_tasks = st.sidebar.checkbox("Add control tasks (shuffled labels)", value=True)
 
@@ -279,13 +354,24 @@ with progress_col2:
     dataset_detail = st.empty()
     st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown('#### 🧠 Train Probe')
+    st.markdown('#### 🧠 Train Models')
     training_status = st.empty()
     training_status.markdown(
         '<span class="status-idle">Waiting to start...</span>', unsafe_allow_html=True)
     training_progress_bar = st.progress(0)
     training_progress_text = st.empty()
     training_detail = st.empty()
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# Only show autoencoder progress if using sparse autoencoders
+if 'use_sparse_autoencoder' in locals() and use_sparse_autoencoder:
+    st.markdown('#### 🔄 Train Sparse Autoencoders')
+    autoencoder_status = st.empty()
+    autoencoder_status.markdown(
+        '<span class="status-idle">Waiting to start...</span>', unsafe_allow_html=True)
+    autoencoder_progress_bar = st.progress(0)
+    autoencoder_progress_text = st.empty()
+    autoencoder_detail = st.empty()
     st.markdown('</div>', unsafe_allow_html=True)
 
 with st.expander("📋 Detailed Log", expanded=False):
@@ -347,6 +433,10 @@ model_tracker = create_model_tracker(model_status, model_progress_bar, model_pro
 dataset_tracker = create_dataset_tracker(dataset_status, dataset_progress_bar, dataset_progress_text, dataset_detail, add_log)
 embedding_tracker = create_embedding_tracker(embedding_status, embedding_progress_bar, embedding_progress_text, embedding_detail, add_log)
 training_tracker = create_training_tracker(training_status, training_progress_bar, training_progress_text, training_detail, add_log)
+
+# Create autoencoder tracker if needed
+if 'use_sparse_autoencoder' in locals() and use_sparse_autoencoder and 'autoencoder_status' in locals():
+    autoencoder_tracker = create_autoencoder_tracker(autoencoder_status, autoencoder_progress_bar, autoencoder_progress_text, autoencoder_detail, add_log)
 
 def mark_complete(status_element, message="Complete"):
     """Mark this stage as complete"""
@@ -561,8 +651,8 @@ if run_button:
             "dataset": dataset_source,
             "output_activation": output_layer,
             "batch_size": batch_size,
-            "train_epochs": train_epochs,
-            "learning_rate": learning_rate,
+            "probe_epochs": probe_epochs,
+            "probe_learning_rate": probe_lr,
             "use_control_tasks": use_control_tasks,
             "device": str(device),
             "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -594,18 +684,49 @@ if run_button:
         )
         mark_complete(embedding_status)
 
-        # 4. Train probes with progress
-        training_tracker.update(0, "Training probes...", "Initializing")
-
+        # 4. Train models with progress
         num_layers = get_num_layers(model)
-        results = train_and_evaluate_model(
-            train_hidden_states, train_labels,
-            test_hidden_states, test_labels,
-            num_layers, use_control_tasks,
-            progress_callback=training_tracker.update,
-            epochs=train_epochs, lr=learning_rate, device=device
-        )
-        mark_complete(training_status)
+
+        # Train linear probes if enabled
+        results = {}
+        if use_linear_probe:
+            training_tracker.update(0, "Training linear probes...", "Initializing")
+            probe_results = train_and_evaluate_model(
+                train_hidden_states, train_labels,
+                test_hidden_states, test_labels,
+                num_layers, use_control_tasks,
+                progress_callback=training_tracker.update,
+                epochs=probe_epochs, lr=probe_lr, device=device
+            )
+            mark_complete(training_status)
+            results.update(probe_results)
+
+        # Train sparse autoencoders if enabled
+        if use_sparse_autoencoder and 'autoencoder_tracker' in locals():
+            autoencoder_tracker.update(0, "Training sparse autoencoders...", "Initializing")
+
+            # Determine if using supervised or unsupervised autoencoders
+            is_supervised = autoencoder_type == "Supervised"
+
+            autoencoder_results = train_and_evaluate_autoencoders(
+                train_hidden_states, train_labels,
+                test_hidden_states, test_labels,
+                num_layers, is_supervised,
+                progress_callback=autoencoder_tracker.update,
+                epochs=autoencoder_epochs, lr=autoencoder_lr,
+                l1_coeff=l1_coefficient, bottleneck_dim=bottleneck_dim,
+                tied_weights=tied_weights,
+                lambda_classify=lambda_classify if is_supervised and 'lambda_classify' in locals() else 1.0,
+                device=device
+            )
+
+            mark_complete(autoencoder_status)
+            results['autoencoders'] = autoencoder_results['autoencoders']
+            results['reconstruction_errors'] = autoencoder_results['reconstruction_errors']
+            results['sparsity_values'] = autoencoder_results['sparsity_values']
+
+            if is_supervised and 'classification_accuracies' in autoencoder_results:
+                results['autoencoder_accuracies'] = autoencoder_results['classification_accuracies']
 
         # 5. Plot and display results
         with main_tabs[0]:
@@ -642,10 +763,37 @@ if run_button:
             add_log(f"Saved train representations to {train_representations_path}")
             add_log(f"Saved test representations to {test_representations_path}")
 
-            # Save probe weights to file
-            probe_weights_path = os.path.join(run_folder, "probe_weights.json")
-            save_probe_weights(results['probes'], probe_weights_path)
-            add_log(f"Saved probe weights to {probe_weights_path}")
+            # Save probe weights to file if linear probes were used
+            if use_linear_probe and 'probes' in results:
+                probe_weights_path = os.path.join(run_folder, "probe_weights.json")
+                save_probe_weights(results['probes'], probe_weights_path)
+                add_log(f"Saved probe weights to {probe_weights_path}")
+
+            # Save autoencoder models if they were used
+            if use_sparse_autoencoder and 'autoencoders' in results:
+                autoencoder_path = os.path.join(run_folder, "autoencoders", "autoencoder")
+                os.makedirs(os.path.join(run_folder, "autoencoders"), exist_ok=True)
+                save_autoencoder_models(results['autoencoders'], autoencoder_path)
+                add_log(f"Saved autoencoder models to {os.path.join(run_folder, 'autoencoders')}")
+
+                # Save additional autoencoder statistics to file
+                autoencoder_stats = {
+                    "reconstruction_errors": results['reconstruction_errors'],
+                    "sparsity_values": results['sparsity_values'],
+                    "autoencoder_type": autoencoder_type,
+                    "l1_coefficient": l1_coefficient,
+                    "bottleneck_dim": 0 if bottleneck_dim == 0 else bottleneck_dim,
+                    "tied_weights": tied_weights,
+                    "training_epochs": autoencoder_epochs,
+                    "learning_rate": autoencoder_lr,
+                    "lambda_classify": lambda_classify if is_supervised and 'lambda_classify' in locals() else 1.0
+                }
+
+                if 'autoencoder_accuracies' in results:
+                    autoencoder_stats["classification_accuracies"] = results['autoencoder_accuracies']
+
+                save_json(autoencoder_stats, os.path.join(run_folder, "autoencoder_stats.json"))
+                add_log(f"Saved autoencoder statistics to {os.path.join(run_folder, 'autoencoder_stats.json')}")
 
             # --- Save per-layer visualizations for future access ---
             add_log("Saving per-layer visualizations...")
