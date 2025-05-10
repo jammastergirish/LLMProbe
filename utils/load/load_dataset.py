@@ -1,4 +1,17 @@
 import random
+from collections import Counter
+
+def count_categories(examples):
+    """Count the number of examples in each category based on label value
+
+    Args:
+        examples: List of examples, each with a 'label' field
+
+    Returns:
+        dict: Dictionary with label values as keys and counts as values
+    """
+    labels = [example['label'] for example in examples]
+    return Counter(labels)
 
 def load_dataset(dataset_source, progress_callback, max_samples=5000, custom_file=None, tf_splits=None):
     """Load dataset with progress updates"""

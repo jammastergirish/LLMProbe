@@ -15,12 +15,13 @@ from utils.models import model_options
 from utils.file_manager import create_run_folder, save_json, save_graph
 from utils.memory import estimate_memory_requirements
 from utils.load import (
-    load_model_and_tokenizer, 
-    load_dataset, 
-    get_hidden_states_batched, 
-    is_decoder_only_model, 
+    load_model_and_tokenizer,
+    load_dataset,
+    get_hidden_states_batched,
+    is_decoder_only_model,
     get_num_layers
 )
+from utils.load.load_dataset import count_categories
 from utils.probe import (
     train_and_evaluate_model,
     calculate_mean_activation_difference,
@@ -226,6 +227,9 @@ with col2:
 
     stats_placeholder = st.empty()
     stats_placeholder.info("Statistics will appear when analysis runs")
+
+    # Add a placeholder for category statistics
+    category_stats_placeholder = st.empty()
     with st.expander("📚 Understanding Memory Requirements"):
         st.markdown("""
         ### How Memory is Calculated
@@ -459,12 +463,63 @@ if run_button:
             examples, test_size=test_size, random_state=42, shuffle=True
         )
 
+        # Count examples by category
+        categories = count_categories(examples)
+
+        # Display category statistics in the UI
+        category_stats_df = pd.DataFrame({
+            'Category': [],
+            'Count': [],
+            'Percentage': []
+        })
+
+        for label, count in sorted(categories.items()):
+            category_name = f"Category {label}"
+            if label == 1:
+                category_name = "True"
+            elif label == 0:
+                category_name = "False"
+
+            percentage = (count / len(examples)) * 100
+
+            # Add to the DataFrame
+            category_stats_df = pd.concat([category_stats_df, pd.DataFrame({
+                'Category': [category_name],
+                'Count': [count],
+                'Percentage': [f"{percentage:.1f}%"]
+            })], ignore_index=True)
+
+        # Add total row
+        category_stats_df = pd.concat([category_stats_df, pd.DataFrame({
+            'Category': ['Total'],
+            'Count': [len(examples)],
+            'Percentage': ['100.0%']
+        })], ignore_index=True)
+
+        # Display the category statistics
+        category_stats_placeholder.markdown("#### Dataset Category Distribution")
+        category_stats_placeholder.dataframe(category_stats_df, hide_index=True)
+
+        # Format for the stats table as well
+        category_stats = []
+        for label, count in sorted(categories.items()):
+            category_name = f"Category {label}"
+            if label == 1:
+                category_name = "True"
+            elif label == 0:
+                category_name = "False"
+            category_stats.append(f"{category_name}: {count} examples")
+
+        # Join all category stats with newlines
+        categories_str = "\n".join(category_stats)
+
         # Update stats display
         stats_df = pd.DataFrame({
             'Statistic': [
                 'Total Examples',
                 'Training Examples',
                 'Test Examples',
+                'Category Distribution',
                 'Model Type',
                 'Model Size',
                 'Parameter Memory',
@@ -477,6 +532,7 @@ if run_button:
                 len(examples),
                 len(train_examples),
                 len(test_examples),
+                categories_str,
                 "Decoder-only" if is_decoder_only_model(
                     model_name) else "Encoder-only/Encoder-decoder",
                 memory_estimates["param_count"],
