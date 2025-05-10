@@ -25,12 +25,26 @@ class ProgressTracker:
 
     def add_training_output(self, output):
         """Add detailed training output to history and update display"""
-        self.training_history.append(output)
-        # Display the most recent outputs (up to last 10 lines)
-        recent_history = self.training_history[-10:]
+        # Initialize full history list if it doesn't exist
+        if not hasattr(self, 'full_history'):
+            self.full_history = []
+
+        # Add new output to history
+        self.full_history.append(output)
+
+        # Format epoch headers to make them stand out
+        formatted_output = output
+        if "Epoch" in output and "Initial" not in output and "Finished" not in output:
+            formatted_output = "\n" + "="*50 + "\n" + output
+            self.full_history[-1] = formatted_output  # Replace the last entry with formatted version
+
+        # Create a continuous display of all output
+        # Limit the size to prevent excessive UI slowdown
+        display_limit = 50  # Show last 50 entries
+        display_history = self.full_history[-display_limit:] if len(self.full_history) > display_limit else self.full_history
 
         # Format as code block with monospace font for better readability
-        self.detail_element.markdown(f"```\n{'  \n'.join(recent_history)}\n```")
+        self.detail_element.code("\n".join(display_history))
 
         # Also log it if log function is provided
         if self.log_function:
@@ -80,6 +94,11 @@ def create_autoencoder_tracker(autoencoder_status, autoencoder_progress_bar, aut
 # Create a custom print function that will also update UI
 def create_ui_print_function(original_print, progress_tracker):
     """Create a custom print function that shows output in UI and console"""
+    # Keep track of last update time to avoid too frequent UI refreshes
+    import time
+    last_update_time = [0]  # Using list for nonlocal access
+    min_update_interval = 0.2  # Seconds between UI updates
+
     def ui_print(*args, **kwargs):
         # Call the original print function for console output
         original_print(*args, **kwargs)
@@ -88,6 +107,14 @@ def create_ui_print_function(original_print, progress_tracker):
         if progress_tracker and hasattr(progress_tracker, 'add_training_output'):
             # Convert args to string
             output_text = " ".join(map(str, args))
-            progress_tracker.add_training_output(output_text)
+
+            # Only update UI at reasonable intervals for smooth display
+            current_time = time.time()
+            # Always update for important messages or if enough time has passed
+            important_output = any(key in output_text for key in ["Initial", "Epoch", "Finished", "Layer", "TEST"])
+
+            if important_output or (current_time - last_update_time[0] >= min_update_interval):
+                progress_tracker.add_training_output(output_text)
+                last_update_time[0] = current_time
 
     return ui_print
