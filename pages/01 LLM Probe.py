@@ -11,7 +11,6 @@ from datetime import datetime
 from sklearn.model_selection import train_test_split
 import nest_asyncio
 
-# Import from refactored modules
 from utils.models import model_options
 from utils.file_manager import create_run_folder, save_json, save_graph
 from utils.memory import estimate_memory_requirements
@@ -23,7 +22,6 @@ from utils.load import (
     get_num_layers
 )
 from utils.probe import (
-    LinearProbe,
     train_and_evaluate_model,
     calculate_mean_activation_difference,
     calculate_alignment_strengths,
@@ -98,7 +96,10 @@ st.markdown("""
     }
 </style>
 
-<div class="main-title">Probing Large Language Models</div>""", unsafe_allow_html=True)
+<div class="main-title">LLM Probe</div>""", unsafe_allow_html=True)
+
+# -------------------------------------------------------------------
+# SIDEBAR BEGINS
 
 st.sidebar.markdown("""
 <div style="padding: 5px; border-radius: 5px; margin-bottom: 20px;">
@@ -106,19 +107,19 @@ st.sidebar.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-model_name = st.sidebar.selectbox("📚 Model", model_options)
+# MODEL
+model_name = st.sidebar.selectbox("📚 Language Model", model_options)
 
 if model_name == "custom":
     model_name = st.sidebar.text_input("Custom Model Name")
     if not model_name:
         st.sidebar.error("Please enter a model.")
 
-# Find CSV datasets from the datasets folder
+# DATASETS
 import glob
 csv_files = glob.glob('datasets/*.csv')
 dataset_options = ["truefalse", "truthfulqa", "boolq", "arithmetic", "fever", "custom"]
 
-# Add file-based datasets with .csv extension removed
 csv_dataset_options = [os.path.basename(f).replace('.csv', '') for f in csv_files]
 dataset_options.extend(csv_dataset_options)
 
@@ -166,7 +167,19 @@ if dataset_source == "custom":
         except Exception as e:
             st.sidebar.error(f"Error reading CSV: {str(e)}")
 
-use_control_tasks = st.sidebar.checkbox("Use control tasks", value=True)
+with st.sidebar.expander("⚙️ Probe Options"):
+    train_epochs = st.number_input(
+        "Training epochs", min_value=10, max_value=500, value=100)
+    learning_rate = st.number_input(
+        "Learning rate", min_value=0.0001, max_value=0.1, value=0.01, format="%.4f")
+    max_samples = st.number_input(
+        "Max samples per dataset", min_value=100, max_value=10000, value=5000)
+    test_size = st.slider("Train/test split", min_value=0.1,
+                          max_value=0.5, value=0.2, step=0.05)
+    batch_size = st.number_input("Batch size", min_value=1, max_value=64, value=16,
+                                 help="Larger batches are faster but use more memory. Use smaller values for large models.")
+
+use_control_tasks = st.sidebar.checkbox("Add control tasks (shuffled labels)", value=True)
 
 if is_decoder_only_model(model_name):
     output_layer = st.sidebar.selectbox(
@@ -175,7 +188,7 @@ else:
     output_layer = st.sidebar.selectbox(
         "🧠 Embedding Strategy", ["CLS", "mean", "max", "token_index_0"])
 
-# Device selection
+# DEVICE
 device_options = []
 if torch.cuda.is_available():
     device_options.append("cuda")
@@ -186,20 +199,11 @@ device_options.append("cpu")
 device_name = st.sidebar.selectbox("💻 Compute", device_options)
 device = torch.device(device_name)
 
-with st.sidebar.expander("⚙️ Probe Options"):
-    train_epochs = st.number_input(
-        "Training epochs", min_value=10, max_value=500, value=100)
-    learning_rate = st.number_input(
-        "Learning rate", min_value=0.0001, max_value=0.1, value=0.01, format="%.4f")
-    max_samples = st.number_input(
-        "Max samples per dataset", min_value=100, max_value=10000, value=5000)
-    test_size = st.slider("Test split ratio", min_value=0.1,
-                          max_value=0.5, value=0.2, step=0.05)
-    batch_size = st.number_input("Batch size", min_value=1, max_value=64, value=16,
-                                 help="Larger batches are faster but use more memory. Use smaller values for large models.")
-
 run_button = st.sidebar.button(
     "🚀 Run Analysis", type="primary", use_container_width=True)
+
+# SIDEBAR ENDS
+# -------------------------------------------------------------------
 
 col1, col2 = st.columns([3, 2])
 
