@@ -400,13 +400,26 @@ def train_and_evaluate_autoencoders(train_hidden_states, train_labels, test_hidd
             f"Trained autoencoders for {num_layers} layers"
         )
     
+    # Store the actual layer dimensions for reference
+    layer_dimensions = []
+    input_dimensions = []
+
+    # Calculate actual dimensions for each layer's autoencoder
+    for layer, autoencoder in enumerate(autoencoders):
+        input_dim = autoencoder.input_dim
+        latent_dim = autoencoder.bottleneck_dim
+        input_dimensions.append(input_dim)
+        layer_dimensions.append(latent_dim)
+
     # Compile results
     results = {
         'autoencoders': autoencoders,
         'reconstruction_errors': reconstruction_errors,
-        'sparsity_values': sparsity_values
+        'sparsity_values': sparsity_values,
+        'layer_dimensions': layer_dimensions,
+        'input_dimensions': input_dimensions
     }
-    
+
     if use_supervised:
         results['classification_accuracies'] = classification_accuracies
     

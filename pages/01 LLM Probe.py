@@ -919,7 +919,9 @@ if run_button:
                     "tied_weights": tied_weights,
                     "training_epochs": autoencoder_epochs,
                     "learning_rate": autoencoder_lr,
-                    "lambda_classify": lambda_classify if is_supervised and 'lambda_classify' in locals() else 1.0
+                    "lambda_classify": lambda_classify if is_supervised and 'lambda_classify' in locals() else 1.0,
+                    "layer_dimensions": results['layer_dimensions'] if 'layer_dimensions' in results else [],
+                    "input_dimensions": results['input_dimensions'] if 'input_dimensions' in results else []
                 }
 
                 if 'autoencoder_accuracies' in results:
@@ -944,6 +946,32 @@ if run_button:
 
                     # Display in Data View tab
                     with autoencoder_data_tab_container:
+                        st.subheader("Autoencoder Dimensions")
+
+                        # Create a dataframe showing input and latent dimensions for each layer
+                        if 'layer_dimensions' in results and 'input_dimensions' in results:
+                            dimension_data = []
+                            for i in range(len(results['layer_dimensions'])):
+                                input_dim = results['input_dimensions'][i]
+                                latent_dim = results['layer_dimensions'][i]
+                                ratio = latent_dim / input_dim if input_dim > 0 else 0
+                                dimension_data.append({
+                                    'Layer': i,
+                                    'Input Dimension': input_dim,
+                                    'Latent Dimension': latent_dim,
+                                    'Ratio (Latent/Input)': f"{ratio:.2f}x",
+                                    'Type': 'Overcomplete' if ratio > 1 else ('Undercomplete' if ratio < 1 else 'Same Dimension')
+                                })
+
+                            dimension_df = pd.DataFrame(dimension_data)
+                            st.dataframe(dimension_df)
+
+                            # Also display the total number of parameters
+                            total_params = sum(input_dim * latent_dim * (1 if tied_weights else 2)
+                                              for input_dim, latent_dim in zip(results['input_dimensions'], results['layer_dimensions']))
+                            st.info(f"Total autoencoder parameters: {total_params:,} " +
+                                   f"(with {'tied' if tied_weights else 'untied'} weights)")
+
                         st.subheader("Sparsity Metrics by Layer")
                         st.dataframe(sparsity_df)
 
