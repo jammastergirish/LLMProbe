@@ -8,3 +8,4 @@ saved_data/
 *.pyc
 *.pyc
 .DS_Store
+.env

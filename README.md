@@ -35,6 +35,6 @@ I'd recommend setting up an instance on [RunPod](https://runpod.io?ref=avnw83xb)
 - You'll likely also want to increase the persistent disk space (Volume Disk), assuming you want to use larger Large Language Models, so around 1-10 TB.
 - Click, "Set Overrides," and, "Deploy On-Demand," and wait for the deployment to complete.
 - You'll then want to SSH into the instance. Click, "Connect," follow the SSH instructions (setting up an SSH key, and pasting the public key into RunPod settings), and then follow the instructions to Connect.
-- Once you're in via SSH, you'll need to run `git clone https://github.com/jammastergirish/LLMProbe`, then `cd LLMProbe && ./runpod_firstrun.sh`, which will install the `uv` package manager, the HuggingFace CLI, and will prompt you to enter your HuggingFace token.
+- Once you're in via SSH, you'll need to run `git clone https://github.com/jammastergirish/LLMProbe && cd LLMProbe && ./runpod_firstrun.sh`, which will clone the repository, install the `uv` package manager, the HuggingFace CLI, and will prompt you to enter your HuggingFace token.
 - It'll then run the Streamlit app, to which you can connect in your browser via instructions in the Connect panel at RunPod.
 - On future runs, you can simply run `./run.sh` on the instance.
