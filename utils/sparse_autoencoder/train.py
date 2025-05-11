@@ -289,8 +289,22 @@ def train_and_evaluate_autoencoders(train_hidden_states, train_labels, test_hidd
         # Determine appropriate bottleneck dimension for this layer
         current_layer_dim = train_feats.shape[1]  # Get feature dimension for this layer
 
-        # If bottleneck_dim is 0, use the layer's dimension, otherwise use the specified value
-        layer_bottleneck_dim = current_layer_dim if bottleneck_dim == 0 else bottleneck_dim
+        # Three cases:
+        # 1. bottleneck_dim == 0: Use same dimension as input (for backward compatibility)
+        # 2. 0 < bottleneck_dim < 1: Use as a multiplier (e.g., 0.5 means half the neurons)
+        # 3. bottleneck_dim > 1: Use as a multiplier (e.g., 2.0 means twice the neurons)
+        if bottleneck_dim == 0:
+            # Use the layer's dimension directly
+            layer_bottleneck_dim = current_layer_dim
+        elif 0 < bottleneck_dim < 1 or bottleneck_dim > 1:
+            # Use as a multiplier of the layer's dimension
+            layer_bottleneck_dim = int(current_layer_dim * bottleneck_dim)
+            # Ensure at least 1 neuron
+            layer_bottleneck_dim = max(1, layer_bottleneck_dim)
+            print(f"Layer {layer+1}: Using latent dimension of {layer_bottleneck_dim} ({bottleneck_dim:.1f}x input dimension {current_layer_dim})")
+        else:
+            # Use the absolute value as the fixed dimension
+            layer_bottleneck_dim = abs(int(bottleneck_dim))
 
         # Choose training function based on supervision type
         if use_supervised:

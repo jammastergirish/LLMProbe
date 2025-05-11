@@ -267,22 +267,27 @@ if use_sparse_autoencoder:
             )
 
         # Hidden layer neurons
-        use_same_dims = st.checkbox(
-            "Use Same Number of Neurons as Input",
-            value=True,
-            help="If checked, each layer's autoencoder will match its input dimension. Otherwise, specify a fixed size."
+        # Hidden layer neurons - use multiplier approach
+        neuron_multiplier = st.slider(
+            "Latent Dimension Multiplier",
+            min_value=0.1,
+            max_value=10.0,
+            value=1.0,
+            step=0.1,
+            help="Multiplier for latent dimension: 1.0 = same as input, <1 = smaller, >1 = larger",
+            key="neuron_multiplier_slider"
         )
 
-        if not use_same_dims:
-            bottleneck_dim = st.number_input(
-                "Hidden Layer Neurons",
-                min_value=1,
-                max_value=10000,
-                value=100,
-                help="Fixed number of neurons to use in the hidden layer for all autoencoders."
-            )
+        # Display explanation of what this means
+        if neuron_multiplier == 1.0:
+            st.info("Using same number of dimensions as input (latent_dim = input_dim)")
+            bottleneck_dim = 0  # Special value that means "use input dimension"
+        elif neuron_multiplier < 1.0:
+            st.info(f"Using {neuron_multiplier:.1f}x dimensions (undercomplete autoencoder)")
+            bottleneck_dim = neuron_multiplier  # Store as multiplier - will be converted at runtime
         else:
-            bottleneck_dim = 0  # Use input dimension
+            st.info(f"Using {neuron_multiplier:.1f}x dimensions (overcomplete autoencoder)")
+            bottleneck_dim = neuron_multiplier  # Store as multiplier - will be converted at runtime
 
         tied_weights = st.checkbox(
             "Use Tied Weights",
@@ -908,7 +913,9 @@ if run_button:
                     "activation_type": activation_type,
                     "topk_percent": topk_percent if 'topk_percent' in locals() else 10,
                     "l1_coefficient": l1_coefficient,
-                    "bottleneck_dim": 0 if bottleneck_dim == 0 else bottleneck_dim,
+                    "bottleneck_dim": bottleneck_dim,
+                    "bottleneck_type": "same" if bottleneck_dim == 0 else "multiplier",
+                    "bottleneck_multiplier": neuron_multiplier if 'neuron_multiplier' in locals() else 1.0,
                     "tied_weights": tied_weights,
                     "training_epochs": autoencoder_epochs,
                     "learning_rate": autoencoder_lr,
