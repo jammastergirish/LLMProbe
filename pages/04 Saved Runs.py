@@ -218,8 +218,38 @@ if os.path.exists(SAVED_DATA_DIR):
 
                             # Create expandable section to show raw data if available
                             try:
-                                if "sparsity_values" in autoencoder_stats or "reconstruction_errors" in autoencoder_stats:
-                                    with st.expander("View Raw Sparsity and Reconstruction Data"):
+                                # Check if we have dimension data
+                                has_dimension_data = "layer_dimensions" in autoencoder_stats and "input_dimensions" in autoencoder_stats
+
+                                if has_dimension_data or "sparsity_values" in autoencoder_stats or "reconstruction_errors" in autoencoder_stats:
+                                    with st.expander("View Detailed Autoencoder Statistics"):
+                                        # If we have layer dimensions, show them in a separate section
+                                        if has_dimension_data:
+                                            st.subheader("Autoencoder Dimensions")
+                                            dimension_data = []
+                                            for i in range(len(autoencoder_stats["layer_dimensions"])):
+                                                input_dim = autoencoder_stats["input_dimensions"][i]
+                                                latent_dim = autoencoder_stats["layer_dimensions"][i]
+                                                ratio = latent_dim / input_dim if input_dim > 0 else 0
+                                                dimension_data.append({
+                                                    'Layer': i,
+                                                    'Input Dimension': input_dim,
+                                                    'Latent Dimension': latent_dim,
+                                                    'Ratio (Latent/Input)': f"{ratio:.2f}x",
+                                                    'Type': 'Overcomplete' if ratio > 1 else ('Undercomplete' if ratio < 1 else 'Same Dimension')
+                                                })
+
+                                            dimension_df = pd.DataFrame(dimension_data)
+                                            st.dataframe(dimension_df)
+
+                                            # Calculate total parameters
+                                            tied_weights = autoencoder_stats.get("tied_weights", True)
+                                            total_params = sum(input_dim * latent_dim * (1 if tied_weights else 2)
+                                                             for input_dim, latent_dim in zip(autoencoder_stats["input_dimensions"], autoencoder_stats["layer_dimensions"]))
+                                            st.info(f"Total autoencoder parameters: {total_params:,} " +
+                                                   f"(with {'tied' if tied_weights else 'untied'} weights)")
+
+                                            st.markdown("---")
                                         col1, col2 = st.columns(2)
                                         with col1:
                                             st.subheader("Sparsity Values")
@@ -248,6 +278,79 @@ if os.path.exists(SAVED_DATA_DIR):
                             except Exception as e:
                                 st.warning(
                                     f"Error displaying sparsity data: {str(e)}")
+
+                        # Check for feature grid data
+                        feature_grid_dir = os.path.join(run_folder, "feature_grids")
+                        if os.path.exists(feature_grid_dir) and os.path.isdir(feature_grid_dir):
+                            sae_content_found = True
+
+                            # Display feature grid data
+                            st.markdown("### Feature Grid Analysis")
+                            st.markdown("This shows examples that most strongly activate each feature in the sparse autoencoder.")
+
+                            # Get all feature grid files
+                            feature_grid_files = sorted(
+                                [f for f in os.listdir(feature_grid_dir) if f.startswith("layer_") and f.endswith("_feature_grid.json")],
+                                key=lambda x: int(x.split("_")[1])  # Sort by layer number
+                            )
+
+                            if feature_grid_files:
+                                # Create tabs for each layer
+                                grid_tabs = st.tabs([f"Layer {f.split('_')[1]}" for f in feature_grid_files])
+
+                                for i, grid_file in enumerate(feature_grid_files):
+                                    with grid_tabs[i]:
+                                        layer_num = grid_file.split("_")[1]
+                                        file_path = os.path.join(feature_grid_dir, grid_file)
+
+                                        try:
+                                            with open(file_path, 'r') as f:
+                                                feature_data = json.load(f)
+
+                                                # Display feature grid data
+                                                for feature_info in feature_data:
+                                                    feature_idx = feature_info['feature_idx']
+                                                    mean_activation = feature_info['mean_activation']
+                                                    top_examples = feature_info['top_examples']
+
+                                                    with st.expander(f"Feature {feature_idx} | Mean Activation: {mean_activation:.4f}", expanded=False):
+                                                        if top_examples:
+                                                            # With up to 10 examples, use a multi-column layout for efficiency
+                                                            if len(top_examples) > 6:
+                                                                # For 7-10 examples, use a three-column layout
+                                                                cols = st.columns(3)
+                                                                for j, example in enumerate(top_examples):
+                                                                    col_idx = j % 3  # Distribute among 3 columns
+                                                                    with cols[col_idx]:
+                                                                        st.markdown(f"**Ex {j+1}** (Act: {example['activation']:.4f})")
+                                                                        st.markdown(f"> {example['text']}")
+                                                                        st.divider()
+                                                            elif len(top_examples) > 2:
+                                                                # For 3-6 examples, use a two-column layout
+                                                                col1, col2 = st.columns(2)
+                                                                for j, example in enumerate(top_examples):
+                                                                    if j % 2 == 0:  # Even examples in left column
+                                                                        with col1:
+                                                                            st.markdown(f"**Example {j+1}** (Activation: {example['activation']:.4f})")
+                                                                            st.markdown(f"> {example['text']}")
+                                                                            st.divider()
+                                                                    else:  # Odd examples in right column
+                                                                        with col2:
+                                                                            st.markdown(f"**Example {j+1}** (Activation: {example['activation']:.4f})")
+                                                                            st.markdown(f"> {example['text']}")
+                                                                            st.divider()
+                                                            else:
+                                                                # For 1-2 examples, use single column layout
+                                                                for j, example in enumerate(top_examples):
+                                                                    st.markdown(f"**Example {j+1}** (Activation: {example['activation']:.4f})")
+                                                                    st.markdown(f"> {example['text']}")
+                                                                    st.divider()
+                                                        else:
+                                                            st.info("No examples with positive activation found for this feature.")
+                                        except Exception as e:
+                                            st.warning(f"Error loading feature grid data: {str(e)}")
+                            else:
+                                st.info("No feature grid data files found")
 
                         if not sae_content_found:
                             st.info(

@@ -1140,6 +1140,29 @@ if run_button:
                                     num_features=num_features_slider
                                 )
 
+                                # Save feature grid data to disk (for viewing in Saved Runs)
+                                feature_grid_dir = os.path.join(run_folder, "feature_grids")
+                                os.makedirs(feature_grid_dir, exist_ok=True)
+
+                                # Convert feature data to a serializable format (convert tensors to lists, etc.)
+                                serializable_feature_data = []
+                                for feature_info in feature_data:
+                                    # Clone the feature info to avoid modifying the original
+                                    serializable_info = {
+                                        'feature_idx': feature_info['feature_idx'],
+                                        'mean_activation': feature_info['mean_activation'],
+                                        'top_examples': feature_info['top_examples']  # This should already be serializable
+                                    }
+                                    serializable_feature_data.append(serializable_info)
+
+                                # Save to a JSON file
+                                feature_grid_file = os.path.join(feature_grid_dir, f"layer_{i}_feature_grid.json")
+                                with open(feature_grid_file, 'w') as f:
+                                    import json
+                                    json.dump(serializable_feature_data, f, indent=2)
+
+                                add_log(f"Saved feature grid data for layer {i} to {feature_grid_file}")
+
                                 # Display each feature in a clean, text-based format
                                 for feature_info in feature_data:
                                     feature_idx = feature_info['feature_idx']
