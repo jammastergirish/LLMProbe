@@ -206,7 +206,7 @@ with st.sidebar.expander("⚙️ Linear Probe Options"):
     max_samples = st.number_input(
         "Max samples per dataset", min_value=100, max_value=10000, value=5000)
     test_size = st.slider("Train/test split", min_value=0.1,
-                          max_value=0.5, value=0.2, step=0.05)
+                          max_value=0.5, value=0.2, step=0.05, key="test_size_slider")
     batch_size = st.number_input("Batch size", min_value=1, max_value=64, value=16,
                                  help="Larger batches are faster but use more memory. Use smaller values for large models.")
 
@@ -262,7 +262,8 @@ if use_sparse_autoencoder:
                 min_value=1,
                 max_value=50,
                 value=10,
-                help="Percentage of activations to keep in each batch. Lower values = more sparsity."
+                help="Percentage of activations to keep in each batch. Lower values = more sparsity.",
+                key="topk_percent_slider"
             )
 
         # Hidden layer neurons
@@ -296,7 +297,8 @@ if use_sparse_autoencoder:
                 max_value=5.0,
                 value=1.0,
                 step=0.1,
-                help="Weight for classification loss. Higher values prioritize classification over reconstruction.")
+                help="Weight for classification loss. Higher values prioritize classification over reconstruction.",
+                key="lambda_classify_slider")
 
 if is_decoder_only_model(model_name):
     output_layer = st.sidebar.selectbox(
@@ -1087,7 +1089,8 @@ if run_button:
                                     min_value=5,
                                     max_value=50,
                                     value=15,
-                                    step=5
+                                    step=5,
+                                    key=f"num_features_slider_layer_{i}"
                                 )
 
                                 # Create feature grid visualization using direct data rather than images
@@ -1141,7 +1144,8 @@ if run_button:
                                         f"Number of examples for Feature {selected_feature}",
                                         min_value=3,
                                         max_value=20,
-                                        value=10
+                                        value=10,
+                                        key=f"num_examples_slider_layer_{i}_feature_{selected_feature}"
                                     )
 
                                 # Get examples that most activate the selected feature

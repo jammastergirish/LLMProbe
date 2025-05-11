@@ -34,40 +34,61 @@ class SparseAutoencoder(nn.Module):
 
         # If using tied weights, we'll just tie them during forward pass
 
+
     def batch_topk_activation(self, x, percent=10):
-        """
-        Implements batch-wise top-k activation function
-
-        Args:
-            x: Input tensor of shape [batch_size, hidden_dim]
-            percent: Percentage of activations to keep per batch (e.g., 10 means top 10%)
-
-        Returns:
-            x_activated: Tensor with only the top-k elements kept, rest set to zero
-        """
         batch_size, hidden_dim = x.shape
-
-        # Clone the input to avoid modifying it
-        x_activated = x.clone()
-
-        # Calculate how many elements to keep per batch example
         k = max(1, int(hidden_dim * percent / 100))
 
-        # For each example in the batch
-        for i in range(batch_size):
-            # Get the values and indices of the top-k elements
-            _, indices = torch.topk(x_activated[i].abs(), k)
+        # Get the top-k values and indices for each example in the batch at once
+        _, indices = torch.topk(x.abs(), k, dim=1)
 
-            # Create a mask of zeros
-            mask = torch.zeros_like(x_activated[i])
+        # Create a mask of zeros with the same shape as x
+        mask = torch.zeros_like(x)
 
-            # Set the mask to 1 at the indices of the top-k elements
-            mask[indices] = 1
+        # Create batch indices that repeat for each of the k indices
+        batch_indices = torch.arange(
+            batch_size, device=x.device).view(-1, 1).expand(-1, k)
 
-            # Apply the mask to keep only the top-k elements
-            x_activated[i] = x_activated[i] * mask
+        # Set the mask to 1 at the top-k positions
+        mask.scatter_(1, indices, 1.0)
 
-        return x_activated
+        # Apply the mask
+        return x * mask
+
+    # def batch_topk_activation(self, x, percent=10):
+    #     """
+    #     Implements batch-wise top-k activation function
+
+    #     Args:
+    #         x: Input tensor of shape [batch_size, hidden_dim]
+    #         percent: Percentage of activations to keep per batch (e.g., 10 means top 10%)
+
+    #     Returns:
+    #         x_activated: Tensor with only the top-k elements kept, rest set to zero
+    #     """
+    #     batch_size, hidden_dim = x.shape
+
+    #     # Clone the input to avoid modifying it
+    #     x_activated = x.clone()
+
+    #     # Calculate how many elements to keep per batch example
+    #     k = max(1, int(hidden_dim * percent / 100))
+
+    #     # For each example in the batch
+    #     for i in range(batch_size):
+    #         # Get the values and indices of the top-k elements
+    #         _, indices = torch.topk(x_activated[i].abs(), k)
+
+    #         # Create a mask of zeros
+    #         mask = torch.zeros_like(x_activated[i])
+
+    #         # Set the mask to 1 at the indices of the top-k elements
+    #         mask[indices] = 1
+
+    #         # Apply the mask to keep only the top-k elements
+    #         x_activated[i] = x_activated[i] * mask
+
+    #     return x_activated
 
     def encode(self, x):
         """
