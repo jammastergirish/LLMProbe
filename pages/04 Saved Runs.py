@@ -20,13 +20,35 @@ if os.path.exists(SAVED_DATA_DIR):
         for run_id in run_folders:
             run_folder = os.path.join(SAVED_DATA_DIR, run_id)
 
-            # Load parameters and results
-            with open(os.path.join(run_folder, "parameters.json")) as f:
-                parameters = json.load(f)
-            with open(os.path.join(run_folder, "results.json")) as f:
-                results = json.load(f)
+            # Check for essential files
+            parameters_path = os.path.join(run_folder, "parameters.json")
+            results_path = os.path.join(run_folder, "results.json")
 
-            with st.expander(f"📅 {parameters['datetime']} | 🤖 {parameters['model_name']} | 📊 {parameters['dataset']} | 🔍 {parameters['output_activation']}"):
+            # Skip this run if essential files don't exist
+            if not os.path.exists(parameters_path) or not os.path.exists(results_path):
+                st.warning(
+                    f"Skipping run {run_id} due to missing essential files")
+                continue
+
+            # Load parameters and results
+            try:
+                with open(parameters_path) as f:
+                    parameters = json.load(f)
+                with open(results_path) as f:
+                    results = json.load(f)
+            except Exception as e:
+                st.warning(
+                    f"Skipping run {run_id} due to error loading files: {str(e)}")
+                continue
+
+            # Build a safe display title
+            model_name = parameters.get('model_name', 'Unknown Model')
+            dataset = parameters.get('dataset', 'Unknown Dataset')
+            output_activation = parameters.get(
+                'output_activation', 'Unknown Activation')
+            datetime = parameters.get('datetime', 'Unknown Date')
+
+            with st.expander(f"📅 {datetime} | 🤖 {model_name} | 📊 {dataset} | 🔍 {output_activation}"):
 
                 # Create tabs for different sections
                 run_tabs = st.tabs(
@@ -48,59 +70,72 @@ if os.path.exists(SAVED_DATA_DIR):
                     with param_cols[0]:
                         st.caption("🤖 MODEL CONFIGURATION")
                         st.markdown(
-                            f"**Model Name:** {parameters['model_name']}")
+                            f"**Model Name:** {parameters.get('model_name', 'Not specified')}")
                         st.markdown(
-                            f"**Output Activation:** {parameters['output_activation']}")
+                            f"**Output Activation:** {parameters.get('output_activation', 'Not specified')}")
                         st.markdown(
                             f"**Device:** {parameters.get('device', 'Not specified')}")
 
                     # Training parameters
                     with param_cols[1]:
                         st.caption("🧠 PROBE CONFIGURATION")
-                        st.markdown(f"**Dataset:** {parameters['dataset']}")
                         st.markdown(
-                            f"**Batch Size:** {parameters['batch_size']}")
+                            f"**Dataset:** {parameters.get('dataset', 'Not specified')}")
+                        st.markdown(
+                            f"**Batch Size:** {parameters.get('batch_size', 'Not specified')}")
 
                         # Handle potential parameter naming differences
                         epochs_key = 'train_epochs' if 'train_epochs' in parameters else 'epochs'
-                        st.markdown(f"**Epochs:** {parameters[epochs_key]}")
+                        st.markdown(
+                            f"**Epochs:** {parameters.get(epochs_key, 'Not specified')}")
 
                         st.markdown(
-                            f"**Learning Rate:** {parameters['learning_rate']}")
-                        st.markdown(
-                            f"**Control Tasks:** {'Yes' if parameters['use_control_tasks'] else 'No'}")
+                            f"**Learning Rate:** {parameters.get('learning_rate', 'Not specified')}")
 
-                    # # Show raw parameters as JSON
-                    # with st.expander("View Raw Parameters"):
-                    #     st.json(parameters)
+                        # Safely handle control tasks parameter
+                        control_tasks = parameters.get(
+                            'use_control_tasks', None)
+                        if control_tasks is not None:
+                            control_tasks_display = 'Yes' if control_tasks else 'No'
+                        else:
+                            control_tasks_display = 'Not specified'
+                        st.markdown(
+                            f"**Control Tasks:** {control_tasks_display}")
 
                 # Visualizations tab
                 with run_tabs[2]:
                     # Create sub-tabs for different types of visualizations
-                    viz_tabs = st.tabs(["Linear Probe Results", "Sparse Autoencoder Results"])
+                    viz_tabs = st.tabs(
+                        ["Linear Probe Results", "Sparse Autoencoder Results"])
 
                     # Linear Probe Visualizations
                     with viz_tabs[0]:
                         st.subheader("Linear Probe Analysis")
+                        plots_found = False
 
                         # Accuracy plot
                         accuracy_plot_path = os.path.join(
                             run_folder, "accuracy_plot.png")
                         if os.path.exists(accuracy_plot_path):
+                            plots_found = True
                             st.caption("📈 ACCURACY PLOT")
-                            st.image(accuracy_plot_path, use_container_width=True)
+                            st.image(accuracy_plot_path,
+                                     use_container_width=True)
 
                         # Alignment Strength plot
                         alignment_strength_plot_path = os.path.join(
                             run_folder, "alignment_strength_plot.png")
                         if os.path.exists(alignment_strength_plot_path):
+                            plots_found = True
                             st.caption("🔗 ALIGNMENT STRENGTH BY LAYER")
                             st.image(alignment_strength_plot_path,
                                      use_container_width=True)
 
                         # PCA plot
-                        pca_plot_path = os.path.join(run_folder, "pca_plot.png")
+                        pca_plot_path = os.path.join(
+                            run_folder, "pca_plot.png")
                         if os.path.exists(pca_plot_path):
+                            plots_found = True
                             st.caption("🔍 PCA VISUALIZATION")
                             st.image(pca_plot_path, use_container_width=True)
 
@@ -108,81 +143,115 @@ if os.path.exists(SAVED_DATA_DIR):
                         truth_direction_plot_path = os.path.join(
                             run_folder, "proj_plot.png")
                         if os.path.exists(truth_direction_plot_path):
+                            plots_found = True
                             st.caption("🧭 TRUTH DIRECTION PLOT")
                             st.image(truth_direction_plot_path,
                                      use_container_width=True)
 
+                        if not plots_found:
+                            st.info("No linear probe plots found for this run.")
+
                     # Sparse Autoencoder Visualizations
                     with viz_tabs[1]:
                         st.subheader("Sparse Autoencoder Analysis")
+                        sae_content_found = False
 
                         # Check if this run has autoencoder results
-                        autoencoder_stats_path = os.path.join(run_folder, "autoencoder_stats.json")
-                        sparsity_plot_path = os.path.join(run_folder, "sparsity_plot.png")
-                        l1_sparsity_plot_path = os.path.join(run_folder, "l1_sparsity_plot.png")
-                        reconstruction_error_plot_path = os.path.join(run_folder, "reconstruction_error_plot.png")
+                        autoencoder_stats_path = os.path.join(
+                            run_folder, "autoencoder_stats.json")
+                        sparsity_plot_path = os.path.join(
+                            run_folder, "sparsity_plot.png")
+                        l1_sparsity_plot_path = os.path.join(
+                            run_folder, "l1_sparsity_plot.png")
+                        reconstruction_error_plot_path = os.path.join(
+                            run_folder, "reconstruction_error_plot.png")
 
                         if os.path.exists(autoencoder_stats_path):
+                            sae_content_found = True
                             # Load and display autoencoder stats
-                            with open(autoencoder_stats_path) as f:
-                                autoencoder_stats = json.load(f)
+                            try:
+                                with open(autoencoder_stats_path) as f:
+                                    autoencoder_stats = json.load(f)
 
-                            # Display basic info
-                            st.caption("🔧 AUTOENCODER CONFIGURATION")
-                            config_cols = st.columns(3)
-                            with config_cols[0]:
-                                st.metric("L1 Coefficient", autoencoder_stats.get("l1_coefficient", "N/A"))
-                                st.metric("Type", autoencoder_stats.get("autoencoder_type", "N/A"))
-                            with config_cols[1]:
-                                bottleneck = autoencoder_stats.get("bottleneck_dim", "N/A")
-                                bottleneck_display = "Same as input" if bottleneck == 0 else bottleneck
-                                st.metric("Hidden Dimension", bottleneck_display)
-                                st.metric("Tied Weights", "Yes" if autoencoder_stats.get("tied_weights", False) else "No")
-                            with config_cols[2]:
-                                st.metric("Epochs", autoencoder_stats.get("training_epochs", "N/A"))
-                                st.metric("Learning Rate", autoencoder_stats.get("learning_rate", "N/A"))
+                                # Display basic info
+                                st.caption("🔧 AUTOENCODER CONFIGURATION")
+                                config_cols = st.columns(3)
+                                with config_cols[0]:
+                                    st.metric("L1 Coefficient", autoencoder_stats.get(
+                                        "l1_coefficient", "N/A"))
+                                    st.metric("Type", autoencoder_stats.get(
+                                        "autoencoder_type", "N/A"))
+                                with config_cols[1]:
+                                    bottleneck = autoencoder_stats.get(
+                                        "bottleneck_dim", "N/A")
+                                    bottleneck_display = "Same as input" if bottleneck == 0 else bottleneck
+                                    st.metric("Hidden Dimension",
+                                              bottleneck_display)
+                                    st.metric("Tied Weights", "Yes" if autoencoder_stats.get(
+                                        "tied_weights", False) else "No")
+                                with config_cols[2]:
+                                    st.metric("Epochs", autoencoder_stats.get(
+                                        "training_epochs", "N/A"))
+                                    st.metric("Learning Rate", autoencoder_stats.get(
+                                        "learning_rate", "N/A"))
+                            except Exception as e:
+                                st.warning(
+                                    f"Error loading autoencoder stats: {str(e)}")
 
                             # Display sparsity plot
                             if os.path.exists(sparsity_plot_path):
                                 st.caption("📊 SPARSITY PERCENTAGE BY LAYER")
-                                st.image(sparsity_plot_path, use_container_width=True)
+                                st.image(sparsity_plot_path,
+                                         use_container_width=True)
 
                             # Display L1 sparsity plot
                             if os.path.exists(l1_sparsity_plot_path):
                                 st.caption("📉 L1 SPARSITY MEASURE BY LAYER")
-                                st.image(l1_sparsity_plot_path, use_container_width=True)
+                                st.image(l1_sparsity_plot_path,
+                                         use_container_width=True)
 
                             # Display reconstruction error plot
                             if os.path.exists(reconstruction_error_plot_path):
                                 st.caption("🔄 RECONSTRUCTION ERROR BY LAYER")
-                                st.image(reconstruction_error_plot_path, use_container_width=True)
+                                st.image(reconstruction_error_plot_path,
+                                         use_container_width=True)
 
-                            # Create expandable section to show raw data
-                            with st.expander("View Raw Sparsity and Reconstruction Data"):
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    st.subheader("Sparsity Values")
-                                    if "sparsity_values" in autoencoder_stats:
-                                        sparsity_df = pd.DataFrame({
-                                            "Layer": range(len(autoencoder_stats["sparsity_values"])),
-                                            "L1 Sparsity": autoencoder_stats["sparsity_values"]
-                                        })
-                                        st.dataframe(sparsity_df)
-                                    else:
-                                        st.info("No sparsity values available")
+                            # Create expandable section to show raw data if available
+                            try:
+                                if "sparsity_values" in autoencoder_stats or "reconstruction_errors" in autoencoder_stats:
+                                    with st.expander("View Raw Sparsity and Reconstruction Data"):
+                                        col1, col2 = st.columns(2)
+                                        with col1:
+                                            st.subheader("Sparsity Values")
+                                            if "sparsity_values" in autoencoder_stats:
+                                                sparsity_df = pd.DataFrame({
+                                                    "Layer": range(len(autoencoder_stats["sparsity_values"])),
+                                                    "L1 Sparsity": autoencoder_stats["sparsity_values"]
+                                                })
+                                                st.dataframe(sparsity_df)
+                                            else:
+                                                st.info(
+                                                    "No sparsity values available")
 
-                                with col2:
-                                    st.subheader("Reconstruction Errors")
-                                    if "reconstruction_errors" in autoencoder_stats:
-                                        recon_df = pd.DataFrame({
-                                            "Layer": range(len(autoencoder_stats["reconstruction_errors"])),
-                                            "MSE": autoencoder_stats["reconstruction_errors"]
-                                        })
-                                        st.dataframe(recon_df)
-                                    else:
-                                        st.info("No reconstruction error values available")
-                        else:
-                            st.info("No sparse autoencoder analysis was performed for this run.")
+                                        with col2:
+                                            st.subheader(
+                                                "Reconstruction Errors")
+                                            if "reconstruction_errors" in autoencoder_stats:
+                                                recon_df = pd.DataFrame({
+                                                    "Layer": range(len(autoencoder_stats["reconstruction_errors"])),
+                                                    "MSE": autoencoder_stats["reconstruction_errors"]
+                                                })
+                                                st.dataframe(recon_df)
+                                            else:
+                                                st.info(
+                                                    "No reconstruction error values available")
+                            except Exception as e:
+                                st.warning(
+                                    f"Error displaying sparsity data: {str(e)}")
+
+                        if not sae_content_found:
+                            st.info(
+                                "No sparse autoencoder analysis was performed for this run.")
 
                     # --- Add Per-Layer Visualizations ---
                     st.markdown("--- ")  # Separator
@@ -204,6 +273,7 @@ if os.path.exists(SAVED_DATA_DIR):
                                 with layer_viz_tabs[idx]:
                                     layer_viz_dir = os.path.join(
                                         layers_dir, layer_num_str)
+                                    layer_viz_found = False
 
                                     # Define expected paths
                                     probe_weights_path = os.path.join(
@@ -219,20 +289,29 @@ if os.path.exists(SAVED_DATA_DIR):
 
                                     # Display if exists
                                     if os.path.exists(probe_weights_path):
+                                        layer_viz_found = True
                                         st.image(
                                             probe_weights_path, caption="Probe Neuron Weights", use_container_width=True)
                                     if os.path.exists(activation_diff_path):
+                                        layer_viz_found = True
                                         st.image(
                                             activation_diff_path, caption="Mean Activation Difference (True-False)", use_container_width=True)
                                     if os.path.exists(truth_proj_path):
+                                        layer_viz_found = True
                                         st.image(
                                             truth_proj_path, caption="Truth Direction Projection", use_container_width=True)
                                     if os.path.exists(conf_matrix_path):
+                                        layer_viz_found = True
                                         st.image(
                                             conf_matrix_path, caption="Confusion Matrix", use_container_width=True)
                                     if os.path.exists(neuron_alignment_path):
+                                        layer_viz_found = True
                                         st.image(
                                             neuron_alignment_path, caption="Neuron Alignment (Weight vs. Activation Diff)", use_container_width=True)
+
+                                    if not layer_viz_found:
+                                        st.info(
+                                            f"No visualizations found for Layer {layer_num_str}")
 
                         else:
                             st.info(
@@ -248,13 +327,16 @@ if os.path.exists(SAVED_DATA_DIR):
                     log_file_path = os.path.join(run_folder, "log.txt")
 
                     if os.path.exists(log_file_path):
-                        with open(log_file_path, "rb") as f:
-                            st.download_button(
-                                label="📥 Download Log File",
-                                data=f,
-                                file_name="log.txt",
-                                mime="text/plain"
-                            )
+                        try:
+                            with open(log_file_path, "rb") as f:
+                                st.download_button(
+                                    label="📥 Download Log File",
+                                    data=f,
+                                    file_name="log.txt",
+                                    mime="text/plain"
+                                )
+                        except Exception as e:
+                            st.warning(f"Error loading log file: {str(e)}")
                     else:
                         st.info("No log file found for this run.")
 
@@ -263,10 +345,14 @@ if os.path.exists(SAVED_DATA_DIR):
                     st.subheader("Download Data Files")
 
                     # Check for representations
-                    train_representations_path = os.path.join(run_folder, "train_representations.npy")
-                    test_representations_path = os.path.join(run_folder, "test_representations.npy")
-                    probe_weights_path = os.path.join(run_folder, "probe_weights.json")
-                    probe_weights_pt_path = os.path.join(run_folder, "probe_weights.pt")
+                    train_representations_path = os.path.join(
+                        run_folder, "train_representations.npy")
+                    test_representations_path = os.path.join(
+                        run_folder, "test_representations.npy")
+                    probe_weights_path = os.path.join(
+                        run_folder, "probe_weights.json")
+                    probe_weights_pt_path = os.path.join(
+                        run_folder, "probe_weights.pt")
 
                     # Create columns for better layout
                     col1, col2 = st.columns(2)
@@ -278,49 +364,68 @@ if os.path.exists(SAVED_DATA_DIR):
                         # Train representations
                         if os.path.exists(train_representations_path):
                             files_found = True
-                            with open(train_representations_path, "rb") as f:
-                                st.download_button(
-                                    label="📥 Download Train Representations (NPY)",
-                                    data=f,
-                                    file_name="train_representations.npy",
-                                    mime="application/octet-stream"
-                                )
+                            try:
+                                with open(train_representations_path, "rb") as f:
+                                    st.download_button(
+                                        label="📥 Download Train Representations (NPY)",
+                                        data=f,
+                                        file_name="train_representations.npy",
+                                        mime="application/octet-stream"
+                                    )
+                            except Exception as e:
+                                st.warning(
+                                    f"Error loading train representations: {str(e)}")
 
                             # Check for metadata JSON
-                            train_meta_path = train_representations_path.replace('.npy', '_metadata.json')
+                            train_meta_path = train_representations_path.replace(
+                                '.npy', '_metadata.json')
                             if os.path.exists(train_meta_path):
-                                with open(train_meta_path, "rb") as f:
-                                    st.download_button(
-                                        label="📥 Download Train Representations Metadata (JSON)",
-                                        data=f,
-                                        file_name="train_representations_metadata.json",
-                                        mime="application/json"
-                                    )
+                                try:
+                                    with open(train_meta_path, "rb") as f:
+                                        st.download_button(
+                                            label="📥 Download Train Representations Metadata (JSON)",
+                                            data=f,
+                                            file_name="train_representations_metadata.json",
+                                            mime="application/json"
+                                        )
+                                except Exception as e:
+                                    st.warning(
+                                        f"Error loading train metadata: {str(e)}")
 
                         # Test representations
                         if os.path.exists(test_representations_path):
                             files_found = True
-                            with open(test_representations_path, "rb") as f:
-                                st.download_button(
-                                    label="📥 Download Test Representations (NPY)",
-                                    data=f,
-                                    file_name="test_representations.npy",
-                                    mime="application/octet-stream"
-                                )
+                            try:
+                                with open(test_representations_path, "rb") as f:
+                                    st.download_button(
+                                        label="📥 Download Test Representations (NPY)",
+                                        data=f,
+                                        file_name="test_representations.npy",
+                                        mime="application/octet-stream"
+                                    )
+                            except Exception as e:
+                                st.warning(
+                                    f"Error loading test representations: {str(e)}")
 
                             # Check for metadata JSON
-                            test_meta_path = test_representations_path.replace('.npy', '_metadata.json')
+                            test_meta_path = test_representations_path.replace(
+                                '.npy', '_metadata.json')
                             if os.path.exists(test_meta_path):
-                                with open(test_meta_path, "rb") as f:
-                                    st.download_button(
-                                        label="📥 Download Test Representations Metadata (JSON)",
-                                        data=f,
-                                        file_name="test_representations_metadata.json",
-                                        mime="application/json"
-                                    )
+                                try:
+                                    with open(test_meta_path, "rb") as f:
+                                        st.download_button(
+                                            label="📥 Download Test Representations Metadata (JSON)",
+                                            data=f,
+                                            file_name="test_representations_metadata.json",
+                                            mime="application/json"
+                                        )
+                                except Exception as e:
+                                    st.warning(
+                                        f"Error loading test metadata: {str(e)}")
 
                         if not files_found:
-                            st.info("No representation files found for this run.")
+                            st.info(
+                                "No representation files found for this run.")
 
                     with col2:
                         st.markdown("### Linear Probe Weights")
@@ -329,24 +434,32 @@ if os.path.exists(SAVED_DATA_DIR):
                         # Probe weights JSON metadata
                         if os.path.exists(probe_weights_path):
                             files_found = True
-                            with open(probe_weights_path, "rb") as f:
-                                st.download_button(
-                                    label="📥 Download Probe Weights Metadata (JSON)",
-                                    data=f,
-                                    file_name="probe_weights.json",
-                                    mime="application/json"
-                                )
+                            try:
+                                with open(probe_weights_path, "rb") as f:
+                                    st.download_button(
+                                        label="📥 Download Probe Weights Metadata (JSON)",
+                                        data=f,
+                                        file_name="probe_weights.json",
+                                        mime="application/json"
+                                    )
+                            except Exception as e:
+                                st.warning(
+                                    f"Error loading probe weights metadata: {str(e)}")
 
                         # Probe weights PyTorch model
                         if os.path.exists(probe_weights_pt_path):
                             files_found = True
-                            with open(probe_weights_pt_path, "rb") as f:
-                                st.download_button(
-                                    label="📥 Download Probe Models (PyTorch)",
-                                    data=f,
-                                    file_name="probe_weights.pt",
-                                    mime="application/octet-stream"
-                                )
+                            try:
+                                with open(probe_weights_pt_path, "rb") as f:
+                                    st.download_button(
+                                        label="📥 Download Probe Models (PyTorch)",
+                                        data=f,
+                                        file_name="probe_weights.pt",
+                                        mime="application/octet-stream"
+                                    )
+                            except Exception as e:
+                                st.warning(
+                                    f"Error loading probe models: {str(e)}")
 
                         # Look for individual layer weight files
                         layer_weight_files = []
@@ -360,38 +473,67 @@ if os.path.exists(SAVED_DATA_DIR):
 
                             # Create a zip file of all layer weight files if there are many
                             if len(layer_weight_files) > 5:
-                                import zipfile
-                                import io
+                                try:
+                                    import zipfile
+                                    import io
 
-                                # Create in-memory zip file
-                                zip_buffer = io.BytesIO()
-                                with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                                    for file in layer_weight_files:
-                                        file_path = os.path.join(run_folder, file)
-                                        zipf.write(file_path, arcname=file)
+                                    # Create in-memory zip file
+                                    zip_buffer = io.BytesIO()
+                                    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                                        for file in layer_weight_files:
+                                            file_path = os.path.join(
+                                                run_folder, file)
+                                            zipf.write(file_path, arcname=file)
 
-                                # Reset buffer position
-                                zip_buffer.seek(0)
+                                    # Reset buffer position
+                                    zip_buffer.seek(0)
 
-                                # Create download button for zip
-                                st.download_button(
-                                    label=f"📥 Download All Layer Weights ({len(layer_weight_files)} files)",
-                                    data=zip_buffer,
-                                    file_name="layer_weights.zip",
-                                    mime="application/zip"
-                                )
+                                    # Create download button for zip
+                                    st.download_button(
+                                        label=f"📥 Download All Layer Weights ({len(layer_weight_files)} files)",
+                                        data=zip_buffer,
+                                        file_name="layer_weights.zip",
+                                        mime="application/zip"
+                                    )
+                                except Exception as e:
+                                    st.warning(
+                                        f"Error creating layer weights zip: {str(e)}")
+                                    # Fallback to individual downloads if zip creation fails
+                                    # Show first 5 only as fallback
+                                    for file in sorted(layer_weight_files)[:5]:
+                                        try:
+                                            file_path = os.path.join(
+                                                run_folder, file)
+                                            with open(file_path, "rb") as f:
+                                                st.download_button(
+                                                    label=f"📥 {file}",
+                                                    data=f,
+                                                    file_name=file,
+                                                    mime="application/octet-stream",
+                                                    # Unique key for each button
+                                                    key=f"download_{file}"
+                                                )
+                                        except Exception as e:
+                                            st.warning(
+                                                f"Error loading {file}: {str(e)}")
                             else:
                                 # If only a few files, provide individual download buttons
                                 for file in sorted(layer_weight_files):
-                                    file_path = os.path.join(run_folder, file)
-                                    with open(file_path, "rb") as f:
-                                        st.download_button(
-                                            label=f"📥 {file}",
-                                            data=f,
-                                            file_name=file,
-                                            mime="application/octet-stream",
-                                            key=f"download_{file}"  # Unique key for each button
-                                        )
+                                    try:
+                                        file_path = os.path.join(
+                                            run_folder, file)
+                                        with open(file_path, "rb") as f:
+                                            st.download_button(
+                                                label=f"📥 {file}",
+                                                data=f,
+                                                file_name=file,
+                                                mime="application/octet-stream",
+                                                # Unique key for each button
+                                                key=f"download_{file}"
+                                            )
+                                    except Exception as e:
+                                        st.warning(
+                                            f"Error loading {file}: {str(e)}")
 
                         if not files_found:
                             st.info("No probe weight files found for this run.")
@@ -448,32 +590,44 @@ if os.path.exists(SAVED_DATA_DIR):
                             data_files.append(file)
 
                     if data_files:
-                        import zipfile
-                        import io
+                        try:
+                            import zipfile
+                            import io
 
-                        # Create in-memory zip file
-                        zip_buffer = io.BytesIO()
-                        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                            for file in data_files:
-                                file_path = os.path.join(run_folder, file)
-                                zipf.write(file_path, arcname=file)
+                            # Create in-memory zip file
+                            zip_buffer = io.BytesIO()
+                            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                                for file in data_files:
+                                    file_path = os.path.join(run_folder, file)
+                                    try:
+                                        zipf.write(file_path, arcname=file)
+                                    except Exception as e:
+                                        st.warning(
+                                            f"Error adding {file} to zip: {str(e)}")
 
-                            # Also include parameters and results
-                            if os.path.exists(os.path.join(run_folder, "parameters.json")):
-                                zipf.write(os.path.join(run_folder, "parameters.json"), arcname="parameters.json")
-                            if os.path.exists(os.path.join(run_folder, "results.json")):
-                                zipf.write(os.path.join(run_folder, "results.json"), arcname="results.json")
+                                # Also include parameters and results
+                                if os.path.exists(os.path.join(run_folder, "parameters.json")):
+                                    zipf.write(os.path.join(
+                                        run_folder, "parameters.json"), arcname="parameters.json")
+                                if os.path.exists(os.path.join(run_folder, "results.json")):
+                                    zipf.write(os.path.join(
+                                        run_folder, "results.json"), arcname="results.json")
 
-                        # Reset buffer position
-                        zip_buffer.seek(0)
+                            # Reset buffer position
+                            zip_buffer.seek(0)
 
-                        # Create download button for zip
-                        st.download_button(
-                            label=f"📥 Download All Data Files ({len(data_files)+2} files)",
-                            data=zip_buffer,
-                            file_name=f"{run_id}_all_data.zip",
-                            mime="application/zip"
-                        )
+                            # Create download button for zip
+                            st.download_button(
+                                label=f"📥 Download All Data Files ({len(data_files)+2} files)",
+                                data=zip_buffer,
+                                file_name=f"{run_id}_all_data.zip",
+                                mime="application/zip"
+                            )
+                        except Exception as e:
+                            st.warning(f"Error creating zip file: {str(e)}")
+                            # Offer individual downloads for important files as fallback
+                            st.markdown(
+                                "Could not create zip file. Try downloading individual files from the sections above.")
                     else:
                         st.info("No data files found for this run.")
     else:
