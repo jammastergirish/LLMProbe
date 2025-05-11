@@ -156,18 +156,38 @@ def load_model_and_tokenizer(model_name, progress_callback, device=torch.device(
     
     try:
         model_class = AutoModelForCausalLM if is_decoder_only_model(model_name) else AutoModel
-        model = model_class.from_pretrained(
-            model_name, 
-            output_hidden_states=True,
-            trust_remote_code=True,
-            torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-            low_cpu_mem_usage=True
-        ).to(device)
+        
+        # Special handling for specific model families
+        load_kwargs = {
+            'output_hidden_states': True,
+            'trust_remote_code': True,
+            'torch_dtype': torch.float16 if torch.cuda.is_available() else torch.float32,
+            'low_cpu_mem_usage': True
+        }
+        
+        # Special handling for Qwen models
+        if "qwen" in model_name.lower():
+            progress_callback(0.77, "Detected Qwen model", 
+                            "Adding special parameters for Qwen compatibility")
+            
+            # Qwen models often need these additional parameters
+            load_kwargs.update({
+                'device_map': 'auto',  # Let the model decide on device mapping
+                'revision': 'main',    # Use the main branch
+                'trust_remote_code': True,
+                'quantization_config': None  # Disable quantization
+            })
+            
+        model = model_class.from_pretrained(model_name, **load_kwargs).to(device)
         model.eval()
 
         # Get model statistics
-        n_layers = getattr(model.config, "num_hidden_layers", 12)
-        d_model = getattr(model.config, "hidden_size", 768)
+        n_layers = getattr(model.config, "num_hidden_layers", 
+                          getattr(model.config, "n_layers", 
+                                 getattr(model.config, "num_layers", 12)))
+        d_model = getattr(model.config, "hidden_size", 
+                         getattr(model.config, "d_model", 
+                                getattr(model.config, "n_embd", 768)))
         
         progress_callback(0.9, f"HuggingFace model loaded: {n_layers} layers, {d_model} dimensions",
                         f"Using device: {str(device)}")
@@ -178,6 +198,58 @@ def load_model_and_tokenizer(model_name, progress_callback, device=torch.device(
         return tokenizer, model
         
     except Exception as e:
+        # Special handling for common errors
+        error_str = str(e)
+        if "does not appear to have a file named pytorch_model.bin" in error_str and "qwen" in model_name.lower():
+            # Try a different approach specific to Qwen models
+            progress_callback(0.8, "Qwen model file not found with standard method", 
+                             "Trying alternative loading approach for Qwen")
+            try:
+                # Sometimes using specific revision helps
+                load_kwargs.update({
+                    'revision': 'refs/pr/1',  # Try a different branch
+                    'use_safetensors': False  # Don't require safetensors format
+                })
+                # Convert to RoPE format if needed
+                if "instruct" in model_name.lower():
+                    from huggingface_hub import try_to_load_from_cache, hf_hub_download
+                    # Check if it's available in a different format
+                    repo_id = f"Qwen/{model_name.split('/')[-1]}" if "/" in model_name else f"Qwen/{model_name}"
+                    config_file = hf_hub_download(repo_id, "config.json", revision="main")
+                    load_kwargs.update({'config': config_file})
+                
+                model = model_class.from_pretrained(model_name, **load_kwargs).to(device)
+                model.eval()
+                
+                progress_callback(0.9, "Qwen model loaded with special handling", 
+                                f"Using device: {str(device)}")
+                return tokenizer, model
+            except Exception as e2:
+                progress_callback(0.85, f"Alternative Qwen loading failed: {str(e2)}", 
+                                "Trying one more approach - direct URL")
+                try:
+                    # As a last resort, try loading by direct model ID
+                    if "/" not in model_name:
+                        direct_model_name = f"Qwen/{model_name}"
+                    else:
+                        direct_model_name = model_name
+                        
+                    model = model_class.from_pretrained(
+                        direct_model_name,
+                        trust_remote_code=True,
+                        output_hidden_states=True,
+                        device_map="auto"
+                    ).to(device)
+                    model.eval()
+                    
+                    progress_callback(0.95, "Qwen model loaded with direct approach", 
+                                    f"Using device: {str(device)}")
+                    return tokenizer, model
+                except Exception as e3:
+                    progress_callback(1.0, f"All Qwen loading approaches failed: {str(e3)}\nOriginal error: {str(e)}", 
+                                    "Check model name or connection")
+                    raise RuntimeError(f"Failed to load Qwen model after multiple attempts: {str(e3)}")
+        
         progress_callback(
             1.0, f"Error loading model: {str(e)}", "Check model name or connection")
         raise e
