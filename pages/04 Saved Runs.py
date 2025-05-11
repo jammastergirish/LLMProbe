@@ -539,46 +539,45 @@ if os.path.exists(SAVED_DATA_DIR):
                             st.info("No probe weight files found for this run.")
 
                     # Display file information and help text
-                    with st.expander("ℹ️ About these data files"):
-                        st.markdown("""
-                        ### Understanding the Data Files
+                    st.markdown("""
+                    ### Understanding the Data Files
 
-                        #### Representations (Hidden States)
+                    #### Representations (Hidden States)
 
-                        The **representations** are the hidden states from each layer of the model for each input example. These are stored as NumPy arrays (.npy) format:
+                    The **representations** are the hidden states from each layer of the model for each input example. These are stored as NumPy arrays (.npy) format:
 
-                        - **Shape**: [num_examples, num_layers, hidden_dimension]
-                        - **Usage**: Can be used for further analysis, visualization, or to train new probes
+                    - **Shape**: [num_examples, num_layers, hidden_dimension]
+                    - **Usage**: Can be used for further analysis, visualization, or to train new probes
 
-                        #### Linear Probe Weights
+                    #### Linear Probe Weights
 
-                        The **linear probe weights** are the weights learned during the probe training to classify true/false statements:
+                    The **linear probe weights** are the weights learned during the probe training to classify true/false statements:
 
-                        - **JSON file**: Contains metadata about weights and pointers to NPY files
-                        - **NPY files**: Each layer's weights as a NumPy array
-                        - **PyTorch file (.pt)**: Contains the full probe models in PyTorch format
+                    - **JSON file**: Contains metadata about weights and pointers to NPY files
+                    - **NPY files**: Each layer's weights as a NumPy array
+                    - **PyTorch file (.pt)**: Contains the full probe models in PyTorch format
 
-                        #### How to Use These Files
+                    #### How to Use These Files
 
-                        ```python
-                        import numpy as np
-                        import torch
-                        import json
+                    ```python
+                    import numpy as np
+                    import torch
+                    import json
 
-                        # Load representations
-                        representations = np.load('test_representations.npy')
+                    # Load representations
+                    representations = np.load('test_representations.npy')
 
-                        # Load metadata
-                        with open('test_representations_metadata.json', 'r') as f:
-                            metadata = json.load(f)
+                    # Load metadata
+                    with open('test_representations_metadata.json', 'r') as f:
+                        metadata = json.load(f)
 
-                        # Load individual layer weights
-                        layer_0_weights = np.load('layer_0_weights.npy')
+                    # Load individual layer weights
+                    layer_0_weights = np.load('layer_0_weights.npy')
 
-                        # Load all probe models (if available)
-                        probe_models = torch.load('probe_weights.pt')
-                        ```
-                        """)
+                    # Load all probe models (if available)
+                    probe_models = torch.load('probe_weights.pt')
+                    ```
+                    """)
 
                     # Option to download all data as a single zip
                     st.markdown("### Download Everything")
