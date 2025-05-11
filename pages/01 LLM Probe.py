@@ -362,6 +362,16 @@ with progress_col1:
     embedding_detail = st.empty()
     st.markdown('</div>', unsafe_allow_html=True)
 
+    if 'use_sparse_autoencoder' in locals() and use_sparse_autoencoder:
+        st.markdown('#### 🔄 Train Sparse Autoencoders')
+        autoencoder_status = st.empty()
+        autoencoder_status.markdown(
+            '<span class="status-idle">Waiting to start...</span>', unsafe_allow_html=True)
+        autoencoder_progress_bar = st.progress(0)
+        autoencoder_progress_text = st.empty()
+        autoencoder_detail = st.empty()
+        st.markdown('</div>', unsafe_allow_html=True)
+
 with progress_col2:
     st.markdown('#### 📊 Load Dataset')
     dataset_status = st.empty()
@@ -379,17 +389,6 @@ with progress_col2:
     training_progress_bar = st.progress(0)
     training_progress_text = st.empty()
     training_detail = st.empty()
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# Only show autoencoder progress if using sparse autoencoders
-if 'use_sparse_autoencoder' in locals() and use_sparse_autoencoder:
-    st.markdown('#### 🔄 Train Sparse Autoencoders')
-    autoencoder_status = st.empty()
-    autoencoder_status.markdown(
-        '<span class="status-idle">Waiting to start...</span>', unsafe_allow_html=True)
-    autoencoder_progress_bar = st.progress(0)
-    autoencoder_progress_text = st.empty()
-    autoencoder_detail = st.empty()
     st.markdown('</div>', unsafe_allow_html=True)
 
 with st.expander("📋 Detailed Log", expanded=False):
@@ -430,7 +429,6 @@ with main_tabs[0]:
     # Define empty containers within the sub-tabs for later population
     with accuracy_tab_container:
         accuracy_plot = st.empty()
-        selectivity_plot = st.empty()
     with pca_tab_container:
         pca_plot = st.empty()
     with projection_tab_container:
@@ -1189,8 +1187,8 @@ if run_button:
                         results['selectivities'], results['accuracies'],
                         results['control_accuracies'], model_name, dataset_source
                     )
-                    selectivity_plot.pyplot(fig_sel)
-                    save_graph(fig_sel, os.path.join(run_folder, "selectivity_plot.png"))
+                    accuracy_plot.pyplot(fig_sel)
+                    save_graph(fig_sel, os.path.join(run_folder, "accuracy_plot.png"))
                     with st.expander("What does this chart show?", expanded=False):
                         st.markdown("""
                         This chart visualizes the performance of the linear truth probes across different layers of the model.
