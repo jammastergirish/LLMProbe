@@ -25,7 +25,10 @@ def get_num_layers(model):
 
 
 def load_model_and_tokenizer(model_name, progress_callback, device=torch.device("cpu")):
-    """Load model and tokenizer with progress updates"""
+
+    if not isinstance(model_name, str):
+        model_name = str(model_name)
+
     progress_callback(0.1, "Initializing model loading process...",
                       "Preparing tokenizer and model configuration")
 
@@ -118,6 +121,10 @@ def get_hidden_states_batched(examples, model, tokenizer, model_name, output_lay
                               batch_size=16, device=torch.device("cpu")):
     """Extract hidden states with batching for better performance"""
     import math
+
+    # Ensure model_name is a string
+    if not isinstance(model_name, str):
+        model_name = str(model_name)
     
     all_hidden_states = []
     all_labels = []
