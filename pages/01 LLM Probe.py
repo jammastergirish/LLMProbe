@@ -197,20 +197,21 @@ if dataset_source == "custom":
 
 use_linear_probe = st.sidebar.checkbox("Linear Probes", value=True)
 
-with st.sidebar.expander("⚙️ Linear Probe Options"):
-    # Linear probe parameters
-    probe_epochs = st.number_input(
-        "Training epochs", min_value=10, max_value=500, value=100)
-    probe_lr = st.number_input(
-        "Learning rate", min_value=0.0001, max_value=0.1, value=0.01, format="%.4f")
-    max_samples = st.number_input(
-        "Max samples per dataset", min_value=100, max_value=10000, value=5000)
-    test_size = st.slider("Train/test split", min_value=0.1,
-                          max_value=0.5, value=0.2, step=0.05, key="test_size_slider")
-    batch_size = st.number_input("Batch size", min_value=1, max_value=64, value=16,
-                                 help="Larger batches are faster but use more memory. Use smaller values for large models.")
+if use_linear_probe: 
+    with st.sidebar.expander("⚙️ Linear Probe Options"):
+        # Linear probe parameters
+        probe_epochs = st.number_input(
+            "Training epochs", min_value=10, max_value=500, value=100)
+        probe_lr = st.number_input(
+            "Learning rate", min_value=0.0001, max_value=0.1, value=0.01, format="%.4f")
+        max_samples = st.number_input(
+            "Max samples per dataset", min_value=100, max_value=10000, value=5000)
+        test_size = st.slider("Train/test split", min_value=0.1,
+                            max_value=0.5, value=0.2, step=0.05, key="test_size_slider")
+        batch_size = st.number_input("Batch size", min_value=1, max_value=64, value=16,
+                                    help="Larger batches are faster but use more memory. Use smaller values for large models.")
 
-    use_control_tasks = st.checkbox("Add control tasks (shuffled labels)", value=True)
+        use_control_tasks = st.checkbox("Add control tasks (shuffled labels)", value=True)
 
 use_sparse_autoencoder = st.sidebar.checkbox("Sparse Autoencoders", value=True)
 
