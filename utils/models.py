@@ -4,6 +4,7 @@ model_options = [
     "meta-llama/Llama-3.2-3B-Instruct",
     "meta-llama/Llama-3.3-70B-Instruct",
     "meta-llama/Llama-3.2-3B",
+    "meta-llama/Llama-4-Scout-17B-16E-Instruct",
     "google/gemma-2-2b",
     "google/gemma-2-2b-it",
     "google/gemma-2-9b",
