@@ -32,7 +32,12 @@ def load_model_and_tokenizer(model_name, progress_callback, device=torch.device(
     progress_callback(0.1, "Initializing model loading process...",
                       "Preparing tokenizer and model configuration")
 
-    if is_decoder_only_model(model_name):
+    if "llama-4" in model_name.lower():
+        use_transformerlens = False
+    else:
+        use_transformerlens = is_decoder_only_model(model_name)
+
+    if use_transformerlens:
         progress_callback(0.2, "Detected decoder-only model architecture",
                           f"Loading {model_name} with TransformerLens for better compatibility")
 
