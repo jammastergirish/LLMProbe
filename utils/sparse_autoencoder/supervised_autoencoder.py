@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from utils.sparse_autoencoder.autoencoder import SparseAutoencoder
 
 class SupervisedSparseAutoencoder(SparseAutoencoder):
-    def __init__(self, input_dim, bottleneck_dim=0, tied_weights=True):
+    def __init__(self, input_dim, bottleneck_dim=0, tied_weights=True, activation_type="ReLU", topk_percent=10):
         """
         Supervised sparse autoencoder that adds a classification head for label prediction
 
@@ -13,8 +13,10 @@ class SupervisedSparseAutoencoder(SparseAutoencoder):
             bottleneck_dim (int): Dimension of bottleneck layer (latent space)
                                 If 0, uses same dimension as input
             tied_weights (bool): If True, decoder weights are tied to encoder weights
+            activation_type (str): Type of activation function ('ReLU' or 'BatchTopK')
+            topk_percent (int): Percentage of activations to keep if using BatchTopK
         """
-        super().__init__(input_dim, bottleneck_dim, tied_weights)
+        super().__init__(input_dim, bottleneck_dim, tied_weights, activation_type, topk_percent)
         
         # Add classification head
         self.classifier = nn.Linear(self.bottleneck_dim, 1)

@@ -248,6 +248,23 @@ if use_sparse_autoencoder:
             format="%.4f",
             help="Controls sparsity level. Higher values = more sparsity.")
 
+        # Activation function for the autoencoder
+        activation_type = st.selectbox(
+            "Activation Function",
+            ["ReLU", "BatchTopK"],
+            help="ReLU: Standard activation function. BatchTopK: Only keeps the top-k activations per batch."
+        )
+
+        # If BatchTopK is selected, add k parameter
+        if activation_type == "BatchTopK":
+            topk_percent = st.slider(
+                "Top-K Percent",
+                min_value=1,
+                max_value=50,
+                value=10,
+                help="Percentage of activations to keep in each batch. Lower values = more sparsity."
+            )
+
         # Hidden layer neurons
         use_same_dims = st.checkbox(
             "Use Same Number of Neurons as Input",
@@ -798,7 +815,9 @@ if run_button:
                     l1_coeff=l1_coefficient, bottleneck_dim=bottleneck_dim,
                     tied_weights=tied_weights,
                     lambda_classify=lambda_classify if is_supervised and 'lambda_classify' in locals() else 1.0,
-                    device=device
+                    device=device,
+                    activation_type=activation_type,
+                    topk_percent=topk_percent if 'topk_percent' in locals() else 10
                 )
 
                 results['autoencoders'] = autoencoder_results['autoencoders']
@@ -884,6 +903,8 @@ if run_button:
                     "reconstruction_errors": results['reconstruction_errors'],
                     "sparsity_values": results['sparsity_values'],
                     "autoencoder_type": autoencoder_type,
+                    "activation_type": activation_type,
+                    "topk_percent": topk_percent if 'topk_percent' in locals() else 10,
                     "l1_coefficient": l1_coefficient,
                     "bottleneck_dim": 0 if bottleneck_dim == 0 else bottleneck_dim,
                     "tied_weights": tied_weights,

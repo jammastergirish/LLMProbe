@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class SparseAutoencoder(nn.Module):
-    def __init__(self, input_dim, bottleneck_dim=0, tied_weights=True):
+    def __init__(self, input_dim, bottleneck_dim=0, tied_weights=True, activation_type="ReLU", topk_percent=10):
         """
         Basic sparse autoencoder with optional tied weights
 
@@ -14,6 +14,8 @@ class SparseAutoencoder(nn.Module):
                                           If > input_dim, autoencoder is overcomplete
                                           If < input_dim, autoencoder is undercomplete
             tied_weights (bool): If True, decoder weights are tied to encoder weights
+            activation_type (str): Type of activation function to use ('ReLU' or 'BatchTopK')
+            topk_percent (int): If using BatchTopK, percentage of activations to keep active per batch
         """
         super().__init__()
 
@@ -21,28 +23,74 @@ class SparseAutoencoder(nn.Module):
         self.input_dim = input_dim
         self.bottleneck_dim = input_dim if bottleneck_dim == 0 else bottleneck_dim
         self.tied_weights = tied_weights
-        
+        self.activation_type = activation_type
+        self.topk_percent = topk_percent
+
         # Encoder
         self.encoder = nn.Linear(input_dim, self.bottleneck_dim)
-        
+
         # Decoder - always create even if tied weights to avoid errors
         self.decoder = nn.Linear(self.bottleneck_dim, input_dim)
 
         # If using tied weights, we'll just tie them during forward pass
-    
+
+    def batch_topk_activation(self, x, percent=10):
+        """
+        Implements batch-wise top-k activation function
+
+        Args:
+            x: Input tensor of shape [batch_size, hidden_dim]
+            percent: Percentage of activations to keep per batch (e.g., 10 means top 10%)
+
+        Returns:
+            x_activated: Tensor with only the top-k elements kept, rest set to zero
+        """
+        batch_size, hidden_dim = x.shape
+
+        # Clone the input to avoid modifying it
+        x_activated = x.clone()
+
+        # Calculate how many elements to keep per batch example
+        k = max(1, int(hidden_dim * percent / 100))
+
+        # For each example in the batch
+        for i in range(batch_size):
+            # Get the values and indices of the top-k elements
+            _, indices = torch.topk(x_activated[i].abs(), k)
+
+            # Create a mask of zeros
+            mask = torch.zeros_like(x_activated[i])
+
+            # Set the mask to 1 at the indices of the top-k elements
+            mask[indices] = 1
+
+            # Apply the mask to keep only the top-k elements
+            x_activated[i] = x_activated[i] * mask
+
+        return x_activated
+
     def encode(self, x):
         """
         Encode input to bottleneck representation
-        
+
         Args:
             x: Input tensor of shape [batch_size, input_dim]
-            
+
         Returns:
             h: Encoded representation of shape [batch_size, bottleneck_dim]
-            h_activated: Activated representation (ReLU) of shape [batch_size, bottleneck_dim]
+            h_activated: Activated representation of shape [batch_size, bottleneck_dim]
         """
         h = self.encoder(x)
-        h_activated = F.relu(h)  # ReLU activation for sparsity
+
+        # Apply the appropriate activation function
+        if self.activation_type == "ReLU":
+            h_activated = F.relu(h)  # ReLU activation for sparsity
+        elif self.activation_type == "BatchTopK":
+            h_activated = self.batch_topk_activation(h, self.topk_percent)
+        else:
+            # Default to ReLU if an unknown activation type is specified
+            h_activated = F.relu(h)
+
         return h, h_activated
     
     def decode(self, h):

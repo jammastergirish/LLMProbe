@@ -4,7 +4,7 @@ from utils.sparse_autoencoder.supervised_autoencoder import SupervisedSparseAuto
 
 def train_autoencoder(features, epochs=100, lr=1e-3, l1_coeff=0.01,
                       bottleneck_dim=0, tied_weights=True, device=torch.device("cpu"),
-                      progress_callback=None):
+                      progress_callback=None, activation_type="ReLU", topk_percent=10):
     """
     Train an unsupervised sparse autoencoder on the given features
 
@@ -17,13 +17,17 @@ def train_autoencoder(features, epochs=100, lr=1e-3, l1_coeff=0.01,
                                  If 0, uses same dimension as input
         tied_weights (bool): Whether to use tied weights
         device (torch.device): Device to train on
+        activation_type (str): Type of activation function ('ReLU' or 'BatchTopK')
+        topk_percent (int): Percentage of activations to keep if using BatchTopK
 
     Returns:
         autoencoder (SparseAutoencoder): Trained autoencoder model
         losses (dict): Dictionary of training losses
     """
     input_dim = features.shape[1]
-    autoencoder = SparseAutoencoder(input_dim, bottleneck_dim, tied_weights).to(device)
+    autoencoder = SparseAutoencoder(input_dim, bottleneck_dim, tied_weights,
+                                   activation_type=activation_type,
+                                   topk_percent=topk_percent).to(device)
     optimizer = torch.optim.Adam(autoencoder.parameters(), lr=lr)
 
     # Track losses
@@ -108,7 +112,7 @@ def train_autoencoder(features, epochs=100, lr=1e-3, l1_coeff=0.01,
 def train_supervised_autoencoder(features, labels, epochs=100, lr=1e-3, l1_coeff=0.01,
                                 bottleneck_dim=0, tied_weights=True,
                                 lambda_classify=1.0, device=torch.device("cpu"),
-                                progress_callback=None):
+                                progress_callback=None, activation_type="ReLU", topk_percent=10):
     """
     Train a supervised sparse autoencoder on the given features and labels
 
@@ -123,13 +127,17 @@ def train_supervised_autoencoder(features, labels, epochs=100, lr=1e-3, l1_coeff
         tied_weights (bool): Whether to use tied weights
         lambda_classify (float): Weight for classification loss
         device (torch.device): Device to train on
+        activation_type (str): Type of activation function ('ReLU' or 'BatchTopK')
+        topk_percent (int): Percentage of activations to keep if using BatchTopK
 
     Returns:
         autoencoder (SupervisedSparseAutoencoder): Trained autoencoder model
         losses (dict): Dictionary of training losses
     """
     input_dim = features.shape[1]
-    autoencoder = SupervisedSparseAutoencoder(input_dim, bottleneck_dim, tied_weights).to(device)
+    autoencoder = SupervisedSparseAutoencoder(input_dim, bottleneck_dim, tied_weights,
+                                             activation_type=activation_type,
+                                             topk_percent=topk_percent).to(device)
     optimizer = torch.optim.Adam(autoencoder.parameters(), lr=lr)
 
     # Track losses
@@ -234,7 +242,7 @@ def train_and_evaluate_autoencoders(train_hidden_states, train_labels, test_hidd
                                     num_layers, use_supervised, progress_callback=None,
                                     epochs=100, lr=0.001, l1_coeff=0.01, bottleneck_dim=0,
                                     tied_weights=True, lambda_classify=1.0, device=torch.device("cpu"),
-                                    print_function=print):
+                                    print_function=print, activation_type="ReLU", topk_percent=10):
     """
     Train sparse autoencoders across all layers and evaluate performance
 
@@ -254,6 +262,8 @@ def train_and_evaluate_autoencoders(train_hidden_states, train_labels, test_hidd
         tied_weights (bool): Whether to use tied weights
         lambda_classify (float): Weight for classification loss (only used if use_supervised=True)
         device (torch.device): Device to train on
+        activation_type (str): Type of activation function ('ReLU' or 'BatchTopK')
+        topk_percent (int): Percentage of activations to keep if using BatchTopK
 
     Returns:
         results (dict): Dictionary of results including trained autoencoders
@@ -293,7 +303,9 @@ def train_and_evaluate_autoencoders(train_hidden_states, train_labels, test_hidd
                 tied_weights=tied_weights,
                 lambda_classify=lambda_classify,
                 device=device,
-                progress_callback=progress_callback
+                progress_callback=progress_callback,
+                activation_type=activation_type,
+                topk_percent=topk_percent
             )
             
             # Evaluate on test set
@@ -318,7 +330,9 @@ def train_and_evaluate_autoencoders(train_hidden_states, train_labels, test_hidd
                 bottleneck_dim=layer_bottleneck_dim,
                 tied_weights=tied_weights,
                 device=device,
-                progress_callback=progress_callback
+                progress_callback=progress_callback,
+                activation_type=activation_type,
+                topk_percent=topk_percent
             )
         
         # Compute reconstruction error on test set
