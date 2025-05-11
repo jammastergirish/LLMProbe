@@ -475,7 +475,7 @@ def get_feature_grid_data(autoencoder, test_feats, examples, layer_idx, num_feat
         for feature_idx in top_feature_indices:
             # Get examples that most activate this feature
             top_examples = get_top_activating_examples(
-                autoencoder, test_feats, examples, feature_idx, top_k=3
+                autoencoder, test_feats, examples, feature_idx, top_k=10
             )
 
             # Store feature information
