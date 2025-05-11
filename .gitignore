@@ -6,3 +6,5 @@ saved_data/
 .DS_Store
 *.npy
 *.pyc
+*.pyc
+.DS_Store
