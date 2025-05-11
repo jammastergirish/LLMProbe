@@ -365,11 +365,15 @@ with progress_col1:
     if 'use_sparse_autoencoder' in locals() and use_sparse_autoencoder:
         st.markdown('#### 🔄 Train Sparse Autoencoders')
         autoencoder_status = st.empty()
-        autoencoder_status.markdown(
-            '<span class="status-idle">Waiting to start...</span>', unsafe_allow_html=True)
-        autoencoder_progress_bar = st.progress(0)
-        autoencoder_progress_text = st.empty()
-        autoencoder_detail = st.empty()
+        if 'use_sparse_autoencoder' in locals() and use_sparse_autoencoder:
+            autoencoder_status.markdown(
+                '<span class="status-idle">Waiting to start...</span>', unsafe_allow_html=True)
+            autoencoder_progress_bar = st.progress(0)
+            autoencoder_progress_text = st.empty()
+            autoencoder_detail = st.empty()
+        else:
+            autoencoder_status.markdown(
+                '<span class="status-idle">Skipping.</span>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
 with progress_col2:
@@ -389,6 +393,15 @@ with progress_col2:
     training_progress_bar = st.progress(0)
     training_progress_text = st.empty()
     training_detail = st.empty()
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('#### 📈 Generate Analysis')
+    analysis_status = st.empty()
+    analysis_status.markdown(
+        '<span class="status-idle">Waiting to start...</span>', unsafe_allow_html=True)
+    analysis_progress_bar = st.progress(0)
+    analysis_progress_text = st.empty()
+    analysis_detail = st.empty()
     st.markdown('</div>', unsafe_allow_html=True)
 
 with st.expander("📋 Detailed Log", expanded=False):
@@ -475,6 +488,9 @@ model_tracker = create_model_tracker(model_status, model_progress_bar, model_pro
 dataset_tracker = create_dataset_tracker(dataset_status, dataset_progress_bar, dataset_progress_text, dataset_detail, add_log)
 embedding_tracker = create_embedding_tracker(embedding_status, embedding_progress_bar, embedding_progress_text, embedding_detail, add_log)
 training_tracker = create_training_tracker(training_status, training_progress_bar, training_progress_text, training_detail, add_log)
+
+# Create a generic tracker for analysis (similar structure to other trackers)
+analysis_tracker = create_training_tracker(analysis_status, analysis_progress_bar, analysis_progress_text, analysis_detail, add_log)
 
 # Create autoencoder tracker if needed
 if 'use_sparse_autoencoder' in locals() and use_sparse_autoencoder and 'autoencoder_status' in locals():
@@ -797,8 +813,14 @@ if run_button:
 
             mark_complete(autoencoder_status)
 
+        # 5. Start analysis phase with progress tracking
+        analysis_tracker.update(0, "Starting analysis phase...", "Initializing visualizations and saving data")
+
         # 5. Plot and display results
         with main_tabs[0]:
+            # Update progress for generating accuracy data
+            analysis_tracker.update(0.1, "Generating accuracy data...", "Creating dataframes and saving results")
+
             # Selectivity plot (if using control tasks)
             acc_df = pd.DataFrame({
                 'Layer': range(num_layers),
@@ -823,6 +845,9 @@ if run_button:
             save_json(results_to_save, os.path.join(run_folder, "results.json"))
             add_log(f"Saved results to {os.path.join(run_folder, 'results.json')}")
 
+            # Update progress for saving representations
+            analysis_tracker.update(0.2, "Saving model representations...", "Writing hidden states to disk")
+
             # Save representations (hidden states) to file
             train_representations_path = os.path.join(run_folder, "train_representations.npy")
             test_representations_path = os.path.join(run_folder, "test_representations.npy")
@@ -832,11 +857,17 @@ if run_button:
             add_log(f"Saved train representations to {train_representations_path}")
             add_log(f"Saved test representations to {test_representations_path}")
 
+            # Update progress for saving probe weights
+            analysis_tracker.update(0.3, "Saving probe weights...", "Writing trained probe parameters to disk")
+
             # Save probe weights to file if linear probes were used
             if use_linear_probe and 'probes' in results:
                 probe_weights_path = os.path.join(run_folder, "probe_weights.json")
                 save_probe_weights(results['probes'], probe_weights_path)
                 add_log(f"Saved probe weights to {probe_weights_path}")
+
+            # Update progress for saving autoencoder models
+            analysis_tracker.update(0.4, "Saving autoencoder models...", "Writing trained autoencoder models to disk")
 
             # Save autoencoder models if they were used
             if use_sparse_autoencoder and 'autoencoders' in results:
@@ -844,6 +875,9 @@ if run_button:
                 os.makedirs(os.path.join(run_folder, "autoencoders"), exist_ok=True)
                 save_autoencoder_models(results['autoencoders'], autoencoder_path)
                 add_log(f"Saved autoencoder models to {os.path.join(run_folder, 'autoencoders')}")
+
+                # Update progress for saving autoencoder statistics
+                analysis_tracker.update(0.5, "Saving autoencoder statistics...", "Writing performance metrics to disk")
 
                 # Save additional autoencoder statistics to file
                 autoencoder_stats = {
@@ -866,6 +900,9 @@ if run_button:
 
                 # Visualize sparse autoencoder results
                 with main_tabs[1]:
+                    # Update progress for calculating sparsity metrics
+                    analysis_tracker.update(0.6, "Analyzing sparse autoencoder results...", "Calculating sparsity metrics by layer")
+
                     # Calculate detailed sparsity metrics for each layer
                     sparsity_metrics = get_sparsity_metrics_by_layer(
                         results['autoencoders'],
@@ -879,6 +916,9 @@ if run_button:
                     with autoencoder_data_tab_container:
                         st.subheader("Sparsity Metrics by Layer")
                         st.dataframe(sparsity_df)
+
+                    # Update progress for generating sparsity visualizations
+                    analysis_tracker.update(0.7, "Generating sparsity visualizations...", "Creating sparsity charts for each layer")
 
                     # Sparsity Analysis Tab
                     with sparsity_tab_container:
@@ -933,6 +973,9 @@ if run_button:
                             These visualizations help identify which layers naturally develop more or less sparse representations and how sparsity varies across the network.
                             """)
 
+                    # Update progress for reconstruction error visualization
+                    analysis_tracker.update(0.75, "Generating reconstruction error plots...", "Creating reconstruction error charts")
+
                     # Reconstruction Error Tab
                     with reconstruction_tab_container:
                         # Plot reconstruction error by layer
@@ -953,6 +996,9 @@ if run_button:
                             - Comparing this with the sparsity plots can reveal trade-offs between sparsity and reconstruction quality
                             - Layers with high sparsity but low reconstruction error have found efficient sparse representations
                             """)
+
+                    # Update progress for activation distribution visualization
+                    analysis_tracker.update(0.8, "Generating activation distributions...", "Creating neuron activation visualizations for each layer")
 
                     # Activation Distribution Tab
                     with distribution_tab_container:
@@ -987,6 +1033,9 @@ if run_button:
                                         run_folder=run_folder
                                     )
                                     st.pyplot(fig_top)
+
+                    # Update progress for feature grid visualization
+                    analysis_tracker.update(0.85, "Generating feature grid visualizations...", "Creating feature grids for autoencoder neurons")
 
                     # Feature Grid Tab
                     with feature_grid_tab_container:
@@ -1111,8 +1160,15 @@ if run_button:
                             """)
 
             # --- Save per-layer visualizations for future access ---
+            analysis_tracker.update(0.9, "Saving detailed per-layer visualizations...", "Generating and saving visualizations for each layer")
             add_log("Saving per-layer visualizations...")
+
             for layer in range(num_layers):
+                # Update progress to show current layer
+                progress_percentage = 0.9 + (layer / num_layers) * 0.05
+                analysis_tracker.update(progress_percentage, f"Saving visualizations for layer {layer}/{num_layers-1}...",
+                                      f"Generating plots for layer {layer}")
+
                 # Create layer directory
                 layer_save_dir = os.path.join(run_folder, "layers", str(layer))
                 os.makedirs(layer_save_dir, exist_ok=True)
@@ -1177,6 +1233,8 @@ if run_button:
             add_log("Per-layer visualizations saved successfully")
 
             # --- Calculate Alignment Strengths for all layers ---
+            analysis_tracker.update(0.95, "Calculating alignment strengths...", "Analyzing neuron alignment between probe weights and activation differences")
+
             alignment_strengths, all_layers_mean_diff_activations, probe_weights = calculate_alignment_strengths(
                 test_hidden_states, test_labels, results, num_layers
             )
@@ -1558,6 +1616,10 @@ if run_button:
                                         st.error(f"**Statement:** {text}\n\n**Actual:** {actual} | **Predicted:** {pred} | **Confidence:** {conf:.2f}")
                                 else:
                                     st.info("No incorrect examples found.")
+
+            # Mark analysis as complete
+            analysis_tracker.update(1.0, "Analysis complete!", "All visualizations and data saved successfully")
+            mark_complete(analysis_status, "Analysis Complete")
 
     except Exception as e:
         st.error(f"An error occurred: {str(e)}")
