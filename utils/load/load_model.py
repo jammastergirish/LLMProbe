@@ -1,10 +1,15 @@
 import torch
 import time
 
+
 def is_decoder_only_model(model_name):
     """Check if model is a decoder-only model based on its name."""
+    # Convert model_name to string to ensure we can call lower() on it
+    if not isinstance(model_name, str):
+        model_name = str(model_name)
+
     decoder_keywords = ["gpt", "llama", "mistral",
-                      "pythia", "deepseek", "qwen", "gemma"]
+                        "pythia", "deepseek", "qwen", "gemma"]
     return any(keyword in model_name.lower() for keyword in decoder_keywords)
 
 
