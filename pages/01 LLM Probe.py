@@ -273,7 +273,7 @@ if use_sparse_autoencoder:
             "Latent Dimension Multiplier",
             min_value=0.1,
             max_value=10.0,
-            value=1.0,
+            value=10.0,
             step=0.1,
             help="Multiplier for latent dimension: 1.0 = same as input, <1 = smaller, >1 = larger",
             key="neuron_multiplier_slider"
@@ -743,6 +743,10 @@ if run_button:
             "num_layers": num_layers,
             "num_examples": len(examples)
         }
+
+        # Add truefalse categories if using the truefalse dataset
+        if dataset_source == "truefalse":
+            parameters["truefalse_categories"] = selected_tf_splits
         save_json(parameters, os.path.join(run_folder, "parameters.json"))
         add_log(f"Saved parameters to {os.path.join(run_folder, 'parameters.json')}")
 

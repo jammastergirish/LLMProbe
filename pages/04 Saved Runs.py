@@ -133,6 +133,14 @@ if os.path.exists(SAVED_DATA_DIR):
                         st.markdown(
                             f"**Control Tasks:** {control_tasks_display}")
 
+                        # Display TrueFalse categories if available and dataset is truefalse
+                        if parameters.get('dataset') == 'truefalse' and 'truefalse_categories' in parameters:
+                            truefalse_categories = parameters.get('truefalse_categories', [])
+                            if truefalse_categories:
+                                st.markdown("**TrueFalse Categories:**")
+                                categories_str = ", ".join(truefalse_categories)
+                                st.markdown(f"- {categories_str}")
+
                 # Visualizations tab
                 with run_tabs[2]:
                     # Create sub-tabs for different types of visualizations
