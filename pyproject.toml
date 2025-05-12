@@ -8,6 +8,7 @@ dependencies = [
     "accelerate>=1.6.0",
     "blobfile>=3.0.0",
     "datasets>=3.5.1",
+    "hf-xet>=1.1.0",
     "matplotlib>=3.10.1",
     "nest-asyncio>=1.6.0",
     "protobug>=0.2.0",
