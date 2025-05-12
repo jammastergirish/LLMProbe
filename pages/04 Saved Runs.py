@@ -307,46 +307,111 @@ if os.path.exists(SAVED_DATA_DIR):
                                             with open(file_path, 'r') as f:
                                                 feature_data = json.load(f)
 
-                                                # Display feature grid data
-                                                for feature_info in feature_data:
-                                                    feature_idx = feature_info['feature_idx']
-                                                    mean_activation = feature_info['mean_activation']
-                                                    top_examples = feature_info['top_examples']
+                                                # Group features into sets of 10 (or fewer for the last set)
+                                                feature_sets = []
+                                                current_set = []
 
-                                                    with st.expander(f"Feature {feature_idx} | Mean Activation: {mean_activation:.4f}", expanded=False):
-                                                        if top_examples:
-                                                            # With up to 10 examples, use a multi-column layout for efficiency
-                                                            if len(top_examples) > 6:
-                                                                # For 7-10 examples, use a three-column layout
-                                                                cols = st.columns(3)
-                                                                for j, example in enumerate(top_examples):
-                                                                    col_idx = j % 3  # Distribute among 3 columns
-                                                                    with cols[col_idx]:
-                                                                        st.markdown(f"**Ex {j+1}** (Act: {example['activation']:.4f})")
+                                                for feature_info in feature_data:
+                                                    current_set.append(feature_info)
+                                                    if len(current_set) == 10:
+                                                        feature_sets.append(current_set)
+                                                        current_set = []
+
+                                                # Add any remaining features
+                                                if current_set:
+                                                    feature_sets.append(current_set)
+
+                                                # Create page tabs if we have many features
+                                                if len(feature_sets) > 1:
+                                                    page_tabs = st.tabs([f"Features {i*10+1}-{min((i+1)*10, len(feature_data))}" for i in range(len(feature_sets))])
+
+                                                    for page_idx, feature_set in enumerate(feature_sets):
+                                                        with page_tabs[page_idx]:
+                                                            # Create tabs for each feature in this set
+                                                            feature_tabs = st.tabs([f"Feature {f['feature_idx']} | Act: {f['mean_activation']:.4f}" for f in feature_set])
+
+                                                            for feat_idx, feature_info in enumerate(feature_set):
+                                                                with feature_tabs[feat_idx]:
+                                                                    feature_idx = feature_info['feature_idx']
+                                                                    mean_activation = feature_info['mean_activation']
+                                                                    top_examples = feature_info['top_examples']
+
+                                                                    if top_examples:
+                                                                        # With up to 10 examples, use a multi-column layout for efficiency
+                                                                        if len(top_examples) > 6:
+                                                                            # For 7-10 examples, use a three-column layout
+                                                                            cols = st.columns(3)
+                                                                            for j, example in enumerate(top_examples):
+                                                                                col_idx = j % 3  # Distribute among 3 columns
+                                                                                with cols[col_idx]:
+                                                                                    st.markdown(f"**Ex {j+1}** (Act: {example['activation']:.4f})")
+                                                                                    st.markdown(f"> {example['text']}")
+                                                                                    st.divider()
+                                                                        elif len(top_examples) > 2:
+                                                                            # For 3-6 examples, use a two-column layout
+                                                                            col1, col2 = st.columns(2)
+                                                                            for j, example in enumerate(top_examples):
+                                                                                if j % 2 == 0:  # Even examples in left column
+                                                                                    with col1:
+                                                                                        st.markdown(f"**Example {j+1}** (Activation: {example['activation']:.4f})")
+                                                                                        st.markdown(f"> {example['text']}")
+                                                                                        st.divider()
+                                                                                else:  # Odd examples in right column
+                                                                                    with col2:
+                                                                                        st.markdown(f"**Example {j+1}** (Activation: {example['activation']:.4f})")
+                                                                                        st.markdown(f"> {example['text']}")
+                                                                                        st.divider()
+                                                                        else:
+                                                                            # For 1-2 examples, use single column layout
+                                                                            for j, example in enumerate(top_examples):
+                                                                                st.markdown(f"**Example {j+1}** (Activation: {example['activation']:.4f})")
+                                                                                st.markdown(f"> {example['text']}")
+                                                                                st.divider()
+                                                                    else:
+                                                                        st.info("No examples with positive activation found for this feature.")
+                                                else:
+                                                    # If few features, just create tabs directly
+                                                    feature_tabs = st.tabs([f"Feature {f['feature_idx']} | Act: {f['mean_activation']:.4f}" for f in feature_data])
+
+                                                    for feat_idx, feature_info in enumerate(feature_data):
+                                                        with feature_tabs[feat_idx]:
+                                                            feature_idx = feature_info['feature_idx']
+                                                            mean_activation = feature_info['mean_activation']
+                                                            top_examples = feature_info['top_examples']
+
+                                                            if top_examples:
+                                                                # With up to 10 examples, use a multi-column layout for efficiency
+                                                                if len(top_examples) > 6:
+                                                                    # For 7-10 examples, use a three-column layout
+                                                                    cols = st.columns(3)
+                                                                    for j, example in enumerate(top_examples):
+                                                                        col_idx = j % 3  # Distribute among 3 columns
+                                                                        with cols[col_idx]:
+                                                                            st.markdown(f"**Ex {j+1}** (Act: {example['activation']:.4f})")
+                                                                            st.markdown(f"> {example['text']}")
+                                                                            st.divider()
+                                                                elif len(top_examples) > 2:
+                                                                    # For 3-6 examples, use a two-column layout
+                                                                    col1, col2 = st.columns(2)
+                                                                    for j, example in enumerate(top_examples):
+                                                                        if j % 2 == 0:  # Even examples in left column
+                                                                            with col1:
+                                                                                st.markdown(f"**Example {j+1}** (Activation: {example['activation']:.4f})")
+                                                                                st.markdown(f"> {example['text']}")
+                                                                                st.divider()
+                                                                        else:  # Odd examples in right column
+                                                                            with col2:
+                                                                                st.markdown(f"**Example {j+1}** (Activation: {example['activation']:.4f})")
+                                                                                st.markdown(f"> {example['text']}")
+                                                                                st.divider()
+                                                                else:
+                                                                    # For 1-2 examples, use single column layout
+                                                                    for j, example in enumerate(top_examples):
+                                                                        st.markdown(f"**Example {j+1}** (Activation: {example['activation']:.4f})")
                                                                         st.markdown(f"> {example['text']}")
                                                                         st.divider()
-                                                            elif len(top_examples) > 2:
-                                                                # For 3-6 examples, use a two-column layout
-                                                                col1, col2 = st.columns(2)
-                                                                for j, example in enumerate(top_examples):
-                                                                    if j % 2 == 0:  # Even examples in left column
-                                                                        with col1:
-                                                                            st.markdown(f"**Example {j+1}** (Activation: {example['activation']:.4f})")
-                                                                            st.markdown(f"> {example['text']}")
-                                                                            st.divider()
-                                                                    else:  # Odd examples in right column
-                                                                        with col2:
-                                                                            st.markdown(f"**Example {j+1}** (Activation: {example['activation']:.4f})")
-                                                                            st.markdown(f"> {example['text']}")
-                                                                            st.divider()
                                                             else:
-                                                                # For 1-2 examples, use single column layout
-                                                                for j, example in enumerate(top_examples):
-                                                                    st.markdown(f"**Example {j+1}** (Activation: {example['activation']:.4f})")
-                                                                    st.markdown(f"> {example['text']}")
-                                                                    st.divider()
-                                                        else:
-                                                            st.info("No examples with positive activation found for this feature.")
+                                                                st.info("No examples with positive activation found for this feature.")
                                         except Exception as e:
                                             st.warning(f"Error loading feature grid data: {str(e)}")
                             else:
