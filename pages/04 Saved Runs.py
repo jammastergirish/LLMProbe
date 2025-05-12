@@ -3,6 +3,9 @@ import json
 import streamlit as st
 from utils.file_manager import SAVED_DATA_DIR
 import pandas as pd
+import zipfile
+import io
+import shutil
 
 st.set_page_config(page_title="Saved Runs", layout="wide")
 
@@ -56,7 +59,35 @@ if os.path.exists(SAVED_DATA_DIR):
 
                 # Overview tab
                 with run_tabs[0]:
-                    st.subheader("Run Information")
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.subheader("Run Information")
+                    with col2:
+                        # Create a zip file of the entire run folder
+                        try:
+                            # Create in-memory zip file of the entire directory
+                            zip_buffer = io.BytesIO()
+                            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                                for root, dirs, files in os.walk(run_folder):
+                                    for file in files:
+                                        file_path = os.path.join(root, file)
+                                        # Calculate relative path from run_folder
+                                        relative_path = os.path.relpath(file_path, run_folder)
+                                        zipf.write(file_path, arcname=relative_path)
+
+                            # Reset buffer position
+                            zip_buffer.seek(0)
+
+                            # Create download button for the entire folder
+                            st.download_button(
+                                label="📥 Download Full Run",
+                                data=zip_buffer,
+                                file_name=f"{run_id}.zip",
+                                mime="application/zip"
+                            )
+                        except Exception as e:
+                            st.warning(f"Error creating download: {str(e)}")
+
                     st.json(parameters)
 
                 # Parameters tab
