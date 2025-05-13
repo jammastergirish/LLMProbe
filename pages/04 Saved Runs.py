@@ -11,6 +11,20 @@ st.set_page_config(page_title="Saved Runs", layout="wide")
 
 st.title("📊 Saved Runs")
 
+# User notification about the optimized loading approach
+st.info("""
+❕ **Performance Optimizations:** Heavy visualizations (like feature grids and per-layer images) are now loaded on-demand.
+Click the relevant buttons to load these visualizations when you need them.
+""")
+
+# Option to choose quick view mode
+quick_view = st.checkbox("⚡ Enable Quick View Mode (Skip loading large visualizations)", value=True)
+
+if quick_view:
+    st.success("Quick View Mode enabled: Large visualizations will only be loaded when explicitly requested.")
+else:
+    st.warning("Quick View Mode disabled: All visualizations will be loaded. This may cause slower performance.")
+
 # List all saved runs
 if os.path.exists(SAVED_DATA_DIR):
     run_folders = sorted(
@@ -63,30 +77,34 @@ if os.path.exists(SAVED_DATA_DIR):
                     with col1:
                         st.subheader("Run Information")
                     with col2:
-                        # Create a zip file of the entire run folder
-                        try:
-                            # Create in-memory zip file of the entire directory
-                            zip_buffer = io.BytesIO()
-                            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                                for root, dirs, files in os.walk(run_folder):
-                                    for file in files:
-                                        file_path = os.path.join(root, file)
-                                        # Calculate relative path from run_folder
-                                        relative_path = os.path.relpath(file_path, run_folder)
-                                        zipf.write(file_path, arcname=relative_path)
+                        # Only create the zip file when requested with a button
+                        if st.button("📥 Prepare Full Run Download", key=f"prepare_zip_{run_id}"):
+                            with st.spinner("Creating zip file of the entire run folder..."):
+                                try:
+                                    # Create in-memory zip file of the entire directory
+                                    zip_buffer = io.BytesIO()
+                                    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                                        for root, dirs, files in os.walk(run_folder):
+                                            for file in files:
+                                                file_path = os.path.join(root, file)
+                                                # Calculate relative path from run_folder
+                                                relative_path = os.path.relpath(file_path, run_folder)
+                                                zipf.write(file_path, arcname=relative_path)
 
-                            # Reset buffer position
-                            zip_buffer.seek(0)
+                                    # Reset buffer position
+                                    zip_buffer.seek(0)
 
-                            # Create download button for the entire folder
-                            st.download_button(
-                                label="📥 Download Full Run",
-                                data=zip_buffer,
-                                file_name=f"{run_id}.zip",
-                                mime="application/zip"
-                            )
-                        except Exception as e:
-                            st.warning(f"Error creating download: {str(e)}")
+                                    # Create download button for the entire folder
+                                    st.download_button(
+                                        label="📥 Download Full Run",
+                                        data=zip_buffer,
+                                        file_name=f"{run_id}.zip",
+                                        mime="application/zip"
+                                    )
+                                except Exception as e:
+                                    st.warning(f"Error creating download: {str(e)}")
+                        else:
+                            st.info("Click the button above to prepare the download of the entire run folder.")
 
                     st.json(parameters)
 
@@ -327,132 +345,140 @@ if os.path.exists(SAVED_DATA_DIR):
                             st.markdown("### Feature Grid Analysis")
                             st.markdown("This shows examples that most strongly activate each feature in the sparse autoencoder.")
 
-                            # Get all feature grid files
+                            # Get all feature grid files but don't load them yet
                             feature_grid_files = sorted(
                                 [f for f in os.listdir(feature_grid_dir) if f.startswith("layer_") and f.endswith("_feature_grid.json")],
                                 key=lambda x: int(x.split("_")[1])  # Sort by layer number
                             )
 
                             if feature_grid_files:
-                                # Create tabs for each layer
-                                grid_tabs = st.tabs([f"Layer {f.split('_')[1]}" for f in feature_grid_files])
+                                # If quick_view is disabled, always load visualizations
+                                # Otherwise show a button to load on demand
+                                if not quick_view or st.button("📊 Load Feature Grid Visualizations (Heavy)", key=f"load_features_{run_id}"):
+                                    # Create tabs for each layer
+                                    grid_tabs = st.tabs([f"Layer {f.split('_')[1]}" for f in feature_grid_files])
 
-                                for i, grid_file in enumerate(feature_grid_files):
-                                    with grid_tabs[i]:
-                                        layer_num = grid_file.split("_")[1]
-                                        file_path = os.path.join(feature_grid_dir, grid_file)
+                                    for i, grid_file in enumerate(feature_grid_files):
+                                        with grid_tabs[i]:
+                                            layer_num = grid_file.split("_")[1]
+                                            file_path = os.path.join(feature_grid_dir, grid_file)
 
-                                        try:
-                                            with open(file_path, 'r') as f:
-                                                feature_data = json.load(f)
+                                            try:
+                                                with open(file_path, 'r') as f:
+                                                    feature_data = json.load(f)
 
-                                                # Group features into sets of 10 (or fewer for the last set)
-                                                feature_sets = []
-                                                current_set = []
+                                                    # Group features into sets of 10 (or fewer for the last set)
+                                                    feature_sets = []
+                                                    current_set = []
 
-                                                for feature_info in feature_data:
-                                                    current_set.append(feature_info)
-                                                    if len(current_set) == 10:
+                                                    for feature_info in feature_data:
+                                                        current_set.append(feature_info)
+                                                        if len(current_set) == 10:
+                                                            feature_sets.append(current_set)
+                                                            current_set = []
+
+                                                    # Add any remaining features
+                                                    if current_set:
                                                         feature_sets.append(current_set)
-                                                        current_set = []
 
-                                                # Add any remaining features
-                                                if current_set:
-                                                    feature_sets.append(current_set)
+                                                    # Create page tabs if we have many features
+                                                    if len(feature_sets) > 1:
+                                                        page_tabs = st.tabs([f"Features {i*10+1}-{min((i+1)*10, len(feature_data))}" for i in range(len(feature_sets))])
 
-                                                # Create page tabs if we have many features
-                                                if len(feature_sets) > 1:
-                                                    page_tabs = st.tabs([f"Features {i*10+1}-{min((i+1)*10, len(feature_data))}" for i in range(len(feature_sets))])
+                                                        for page_idx, feature_set in enumerate(feature_sets):
+                                                            with page_tabs[page_idx]:
+                                                                # Create tabs for each feature in this set
+                                                                feature_tabs = st.tabs([f"Feature {f['feature_idx']} | Act: {f['mean_activation']:.4f}" for f in feature_set])
 
-                                                    for page_idx, feature_set in enumerate(feature_sets):
-                                                        with page_tabs[page_idx]:
-                                                            # Create tabs for each feature in this set
-                                                            feature_tabs = st.tabs([f"Feature {f['feature_idx']} | Act: {f['mean_activation']:.4f}" for f in feature_set])
+                                                                for feat_idx, feature_info in enumerate(feature_set):
+                                                                    with feature_tabs[feat_idx]:
+                                                                        feature_idx = feature_info['feature_idx']
+                                                                        mean_activation = feature_info['mean_activation']
+                                                                        top_examples = feature_info['top_examples']
 
-                                                            for feat_idx, feature_info in enumerate(feature_set):
-                                                                with feature_tabs[feat_idx]:
-                                                                    feature_idx = feature_info['feature_idx']
-                                                                    mean_activation = feature_info['mean_activation']
-                                                                    top_examples = feature_info['top_examples']
-
-                                                                    if top_examples:
-                                                                        # With up to 10 examples, use a multi-column layout for efficiency
-                                                                        if len(top_examples) > 6:
-                                                                            # For 7-10 examples, use a three-column layout
-                                                                            cols = st.columns(3)
-                                                                            for j, example in enumerate(top_examples):
-                                                                                col_idx = j % 3  # Distribute among 3 columns
-                                                                                with cols[col_idx]:
-                                                                                    st.markdown(f"**Ex {j+1}** (Act: {example['activation']:.4f})")
+                                                                        if top_examples:
+                                                                            # With up to 10 examples, use a multi-column layout for efficiency
+                                                                            if len(top_examples) > 6:
+                                                                                # For 7-10 examples, use a three-column layout
+                                                                                cols = st.columns(3)
+                                                                                for j, example in enumerate(top_examples):
+                                                                                    col_idx = j % 3  # Distribute among 3 columns
+                                                                                    with cols[col_idx]:
+                                                                                        st.markdown(f"**Ex {j+1}** (Act: {example['activation']:.4f})")
+                                                                                        st.markdown(f"> {example['text']}")
+                                                                                        st.divider()
+                                                                            elif len(top_examples) > 2:
+                                                                                # For 3-6 examples, use a two-column layout
+                                                                                col1, col2 = st.columns(2)
+                                                                                for j, example in enumerate(top_examples):
+                                                                                    if j % 2 == 0:  # Even examples in left column
+                                                                                        with col1:
+                                                                                            st.markdown(f"**Example {j+1}** (Activation: {example['activation']:.4f})")
+                                                                                            st.markdown(f"> {example['text']}")
+                                                                                            st.divider()
+                                                                                    else:  # Odd examples in right column
+                                                                                        with col2:
+                                                                                            st.markdown(f"**Example {j+1}** (Activation: {example['activation']:.4f})")
+                                                                                            st.markdown(f"> {example['text']}")
+                                                                                            st.divider()
+                                                                            else:
+                                                                                # For 1-2 examples, use single column layout
+                                                                                for j, example in enumerate(top_examples):
+                                                                                    st.markdown(f"**Example {j+1}** (Activation: {example['activation']:.4f})")
                                                                                     st.markdown(f"> {example['text']}")
                                                                                     st.divider()
-                                                                        elif len(top_examples) > 2:
-                                                                            # For 3-6 examples, use a two-column layout
-                                                                            col1, col2 = st.columns(2)
-                                                                            for j, example in enumerate(top_examples):
-                                                                                if j % 2 == 0:  # Even examples in left column
-                                                                                    with col1:
-                                                                                        st.markdown(f"**Example {j+1}** (Activation: {example['activation']:.4f})")
-                                                                                        st.markdown(f"> {example['text']}")
-                                                                                        st.divider()
-                                                                                else:  # Odd examples in right column
-                                                                                    with col2:
-                                                                                        st.markdown(f"**Example {j+1}** (Activation: {example['activation']:.4f})")
-                                                                                        st.markdown(f"> {example['text']}")
-                                                                                        st.divider()
                                                                         else:
-                                                                            # For 1-2 examples, use single column layout
-                                                                            for j, example in enumerate(top_examples):
-                                                                                st.markdown(f"**Example {j+1}** (Activation: {example['activation']:.4f})")
+                                                                            st.info("No examples with positive activation found for this feature.")
+                                                    else:
+                                                        # If few features, just create tabs directly
+                                                        feature_tabs = st.tabs([f"Feature {f['feature_idx']} | Act: {f['mean_activation']:.4f}" for f in feature_data])
+
+                                                        for feat_idx, feature_info in enumerate(feature_data):
+                                                            with feature_tabs[feat_idx]:
+                                                                feature_idx = feature_info['feature_idx']
+                                                                mean_activation = feature_info['mean_activation']
+                                                                top_examples = feature_info['top_examples']
+
+                                                                if top_examples:
+                                                                    # With up to 10 examples, use a multi-column layout for efficiency
+                                                                    if len(top_examples) > 6:
+                                                                        # For 7-10 examples, use a three-column layout
+                                                                        cols = st.columns(3)
+                                                                        for j, example in enumerate(top_examples):
+                                                                            col_idx = j % 3  # Distribute among 3 columns
+                                                                            with cols[col_idx]:
+                                                                                st.markdown(f"**Ex {j+1}** (Act: {example['activation']:.4f})")
                                                                                 st.markdown(f"> {example['text']}")
                                                                                 st.divider()
+                                                                    elif len(top_examples) > 2:
+                                                                        # For 3-6 examples, use a two-column layout
+                                                                        col1, col2 = st.columns(2)
+                                                                        for j, example in enumerate(top_examples):
+                                                                            if j % 2 == 0:  # Even examples in left column
+                                                                                with col1:
+                                                                                    st.markdown(f"**Example {j+1}** (Activation: {example['activation']:.4f})")
+                                                                                    st.markdown(f"> {example['text']}")
+                                                                                    st.divider()
+                                                                            else:  # Odd examples in right column
+                                                                                with col2:
+                                                                                    st.markdown(f"**Example {j+1}** (Activation: {example['activation']:.4f})")
+                                                                                    st.markdown(f"> {example['text']}")
+                                                                                    st.divider()
                                                                     else:
-                                                                        st.info("No examples with positive activation found for this feature.")
-                                                else:
-                                                    # If few features, just create tabs directly
-                                                    feature_tabs = st.tabs([f"Feature {f['feature_idx']} | Act: {f['mean_activation']:.4f}" for f in feature_data])
-
-                                                    for feat_idx, feature_info in enumerate(feature_data):
-                                                        with feature_tabs[feat_idx]:
-                                                            feature_idx = feature_info['feature_idx']
-                                                            mean_activation = feature_info['mean_activation']
-                                                            top_examples = feature_info['top_examples']
-
-                                                            if top_examples:
-                                                                # With up to 10 examples, use a multi-column layout for efficiency
-                                                                if len(top_examples) > 6:
-                                                                    # For 7-10 examples, use a three-column layout
-                                                                    cols = st.columns(3)
-                                                                    for j, example in enumerate(top_examples):
-                                                                        col_idx = j % 3  # Distribute among 3 columns
-                                                                        with cols[col_idx]:
-                                                                            st.markdown(f"**Ex {j+1}** (Act: {example['activation']:.4f})")
+                                                                        # For 1-2 examples, use single column layout
+                                                                        for j, example in enumerate(top_examples):
+                                                                            st.markdown(f"**Example {j+1}** (Activation: {example['activation']:.4f})")
                                                                             st.markdown(f"> {example['text']}")
                                                                             st.divider()
-                                                                elif len(top_examples) > 2:
-                                                                    # For 3-6 examples, use a two-column layout
-                                                                    col1, col2 = st.columns(2)
-                                                                    for j, example in enumerate(top_examples):
-                                                                        if j % 2 == 0:  # Even examples in left column
-                                                                            with col1:
-                                                                                st.markdown(f"**Example {j+1}** (Activation: {example['activation']:.4f})")
-                                                                                st.markdown(f"> {example['text']}")
-                                                                                st.divider()
-                                                                        else:  # Odd examples in right column
-                                                                            with col2:
-                                                                                st.markdown(f"**Example {j+1}** (Activation: {example['activation']:.4f})")
-                                                                                st.markdown(f"> {example['text']}")
-                                                                                st.divider()
                                                                 else:
-                                                                    # For 1-2 examples, use single column layout
-                                                                    for j, example in enumerate(top_examples):
-                                                                        st.markdown(f"**Example {j+1}** (Activation: {example['activation']:.4f})")
-                                                                        st.markdown(f"> {example['text']}")
-                                                                        st.divider()
-                                                            else:
-                                                                st.info("No examples with positive activation found for this feature.")
-                                        except Exception as e:
-                                            st.warning(f"Error loading feature grid data: {str(e)}")
+                                                                    st.info("No examples with positive activation found for this feature.")
+                                            except Exception as e:
+                                                st.warning(f"Error loading feature grid data: {str(e)}")
+                                else:
+                                    # Show summary of available data without loading everything
+                                    st.info(f"Found feature grid data for {len(feature_grid_files)} layers. Click the button above to load visualizations.")
+                                    # Show list of available layers
+                                    st.markdown("**Available layers:** " + ", ".join([f"Layer {f.split('_')[1]}" for f in feature_grid_files]))
                             else:
                                 st.info("No feature grid data files found")
 
@@ -473,53 +499,59 @@ if os.path.exists(SAVED_DATA_DIR):
                         )
 
                         if layer_subdirs:
-                            layer_viz_tabs = st.tabs(
-                                [f"Layer {d}" for d in layer_subdirs])
+                            # If quick_view is disabled or button is pressed, load visualizations
+                            if not quick_view or st.button("🔍 Load Per-Layer Visualizations", key=f"load_layer_viz_{run_id}"):
+                                layer_viz_tabs = st.tabs(
+                                    [f"Layer {d}" for d in layer_subdirs])
 
-                            for idx, layer_num_str in enumerate(layer_subdirs):
-                                with layer_viz_tabs[idx]:
-                                    layer_viz_dir = os.path.join(
-                                        layers_dir, layer_num_str)
-                                    layer_viz_found = False
+                                for idx, layer_num_str in enumerate(layer_subdirs):
+                                    with layer_viz_tabs[idx]:
+                                        layer_viz_dir = os.path.join(
+                                            layers_dir, layer_num_str)
+                                        layer_viz_found = False
 
-                                    # Define expected paths
-                                    probe_weights_path = os.path.join(
-                                        layer_viz_dir, "probe_weights.png")
-                                    activation_diff_path = os.path.join(
-                                        layer_viz_dir, "activation_diff.png")
-                                    truth_proj_path = os.path.join(
-                                        layer_viz_dir, "truth_projection.png")
-                                    conf_matrix_path = os.path.join(
-                                        layer_viz_dir, "confusion_matrix.png")
-                                    neuron_alignment_path = os.path.join(
-                                        layer_viz_dir, "neuron_alignment.png")
+                                        # Define expected paths
+                                        probe_weights_path = os.path.join(
+                                            layer_viz_dir, "probe_weights.png")
+                                        activation_diff_path = os.path.join(
+                                            layer_viz_dir, "activation_diff.png")
+                                        truth_proj_path = os.path.join(
+                                            layer_viz_dir, "truth_projection.png")
+                                        conf_matrix_path = os.path.join(
+                                            layer_viz_dir, "confusion_matrix.png")
+                                        neuron_alignment_path = os.path.join(
+                                            layer_viz_dir, "neuron_alignment.png")
 
-                                    # Display if exists
-                                    if os.path.exists(probe_weights_path):
-                                        layer_viz_found = True
-                                        st.image(
-                                            probe_weights_path, caption="Probe Neuron Weights", use_container_width=True)
-                                    if os.path.exists(activation_diff_path):
-                                        layer_viz_found = True
-                                        st.image(
-                                            activation_diff_path, caption="Mean Activation Difference (True-False)", use_container_width=True)
-                                    if os.path.exists(truth_proj_path):
-                                        layer_viz_found = True
-                                        st.image(
-                                            truth_proj_path, caption="Truth Direction Projection", use_container_width=True)
-                                    if os.path.exists(conf_matrix_path):
-                                        layer_viz_found = True
-                                        st.image(
-                                            conf_matrix_path, caption="Confusion Matrix", use_container_width=True)
-                                    if os.path.exists(neuron_alignment_path):
-                                        layer_viz_found = True
-                                        st.image(
-                                            neuron_alignment_path, caption="Neuron Alignment (Weight vs. Activation Diff)", use_container_width=True)
+                                        # Display if exists
+                                        if os.path.exists(probe_weights_path):
+                                            layer_viz_found = True
+                                            st.image(
+                                                probe_weights_path, caption="Probe Neuron Weights", use_container_width=True)
+                                        if os.path.exists(activation_diff_path):
+                                            layer_viz_found = True
+                                            st.image(
+                                                activation_diff_path, caption="Mean Activation Difference (True-False)", use_container_width=True)
+                                        if os.path.exists(truth_proj_path):
+                                            layer_viz_found = True
+                                            st.image(
+                                                truth_proj_path, caption="Truth Direction Projection", use_container_width=True)
+                                        if os.path.exists(conf_matrix_path):
+                                            layer_viz_found = True
+                                            st.image(
+                                                conf_matrix_path, caption="Confusion Matrix", use_container_width=True)
+                                        if os.path.exists(neuron_alignment_path):
+                                            layer_viz_found = True
+                                            st.image(
+                                                neuron_alignment_path, caption="Neuron Alignment (Weight vs. Activation Diff)", use_container_width=True)
 
-                                    if not layer_viz_found:
-                                        st.info(
-                                            f"No visualizations found for Layer {layer_num_str}")
-
+                                        if not layer_viz_found:
+                                            st.info(
+                                                f"No visualizations found for Layer {layer_num_str}")
+                            else:
+                                # Show summary of available per-layer visualizations without loading them
+                                st.info(f"Found per-layer visualizations for {len(layer_subdirs)} layers. Click the button above to load them.")
+                                # Show a list of available layers
+                                st.markdown("**Available layers:** " + ", ".join([f"Layer {d}" for d in layer_subdirs]))
                         else:
                             st.info(
                                 "No per-layer visualization subdirectories found.")
@@ -796,44 +828,48 @@ if os.path.exists(SAVED_DATA_DIR):
                             data_files.append(file)
 
                     if data_files:
-                        try:
-                            import zipfile
-                            import io
+                        st.write(f"Found {len(data_files)} data files that can be downloaded.")
 
-                            # Create in-memory zip file
-                            zip_buffer = io.BytesIO()
-                            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                                for file in data_files:
-                                    file_path = os.path.join(run_folder, file)
-                                    try:
-                                        zipf.write(file_path, arcname=file)
-                                    except Exception as e:
-                                        st.warning(
-                                            f"Error adding {file} to zip: {str(e)}")
+                        if st.button("📦 Prepare Data Files Download", key=f"prepare_data_files_{run_id}"):
+                            with st.spinner(f"Creating zip with {len(data_files)} data files..."):
+                                try:
+                                    import zipfile
+                                    import io
 
-                                # Also include parameters and results
-                                if os.path.exists(os.path.join(run_folder, "parameters.json")):
-                                    zipf.write(os.path.join(
-                                        run_folder, "parameters.json"), arcname="parameters.json")
-                                if os.path.exists(os.path.join(run_folder, "results.json")):
-                                    zipf.write(os.path.join(
-                                        run_folder, "results.json"), arcname="results.json")
+                                    # Create in-memory zip file
+                                    zip_buffer = io.BytesIO()
+                                    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                                        for file in data_files:
+                                            file_path = os.path.join(run_folder, file)
+                                            try:
+                                                zipf.write(file_path, arcname=file)
+                                            except Exception as e:
+                                                st.warning(
+                                                    f"Error adding {file} to zip: {str(e)}")
 
-                            # Reset buffer position
-                            zip_buffer.seek(0)
+                                        # Also include parameters and results
+                                        if os.path.exists(os.path.join(run_folder, "parameters.json")):
+                                            zipf.write(os.path.join(
+                                                run_folder, "parameters.json"), arcname="parameters.json")
+                                        if os.path.exists(os.path.join(run_folder, "results.json")):
+                                            zipf.write(os.path.join(
+                                                run_folder, "results.json"), arcname="results.json")
 
-                            # Create download button for zip
-                            st.download_button(
-                                label=f"📥 Download All Data Files ({len(data_files)+2} files)",
-                                data=zip_buffer,
-                                file_name=f"{run_id}_all_data.zip",
-                                mime="application/zip"
-                            )
-                        except Exception as e:
-                            st.warning(f"Error creating zip file: {str(e)}")
-                            # Offer individual downloads for important files as fallback
-                            st.markdown(
-                                "Could not create zip file. Try downloading individual files from the sections above.")
+                                    # Reset buffer position
+                                    zip_buffer.seek(0)
+
+                                    # Create download button for zip
+                                    st.download_button(
+                                        label=f"📥 Download All Data Files ({len(data_files)+2} files)",
+                                        data=zip_buffer,
+                                        file_name=f"{run_id}_all_data.zip",
+                                        mime="application/zip"
+                                    )
+                                except Exception as e:
+                                    st.warning(f"Error creating zip file: {str(e)}")
+                                    # Offer individual downloads for important files as fallback
+                                    st.markdown(
+                                        "Could not create zip file. Try downloading individual files from the sections above.")
                     else:
                         st.info("No data files found for this run.")
     else:
