@@ -8,26 +8,19 @@ from io import BytesIO
 
 st.set_page_config(page_title="Dataset Explorer", layout="wide")
 
-# Main title
 st.title("Dataset Explorer")
 
-# List all available datasets
-# Hugging Face datasets
-hf_datasets = ["truefalse", "azaria-mitchell", "truthfulqa", "boolq", "fever"]
+hf_datasets = ["truefalse", "truthfulqa", "boolq", "fever"]
 
-# Local CSV datasets
 csv_files = glob.glob('datasets/*.csv')
 csv_dataset_options = [os.path.basename(f).replace('.csv', '') for f in csv_files]
 
-# Combine all dataset options
 all_datasets = hf_datasets + csv_dataset_options
 
-# Sidebar for dataset selection
 st.sidebar.header("Dataset Selection")
 
 dataset_source = st.sidebar.selectbox("Dataset", all_datasets)
 
-# Function to create a progress tracker for loading datasets
 def create_progress_tracker():
     progress_container = st.empty()
     progress_bar = st.progress(0)
@@ -40,47 +33,6 @@ def create_progress_tracker():
     
     return update
 
-# Function to extract the azaria-mitchell dataset
-def extract_azaria_mitchell_dataset():
-    base_dir = "datasets/azaria-mitchell"
-    zip_file = os.path.join(base_dir, "dataset.zip")
-    
-    # Check if the ZIP file exists
-    if not os.path.exists(zip_file):
-        st.error("Azaria-Mitchell dataset ZIP file not found. Please download it first.")
-        return False
-    
-    try:
-        # Extract zip file contents
-        with zipfile.ZipFile(zip_file, 'r') as z:
-            z.extractall(base_dir)
-        
-        # List extracted files
-        extracted_files = [f for f in os.listdir(base_dir) if f.endswith('.csv')]
-        if not extracted_files:
-            st.error("No CSV files found in the extracted dataset.")
-            return False
-        
-        st.success(f"Successfully extracted {len(extracted_files)} files")
-        
-        # Format filenames to match the expected pattern
-        for file in extracted_files:
-            if "_true_false.csv" not in file.lower():
-                category = file.split('_')[0].lower()
-                new_filename = f"{category}_true_false.csv"
-                old_path = os.path.join(base_dir, file)
-                new_path = os.path.join(base_dir, new_filename)
-                
-                # Only rename if needed
-                if file != new_filename and os.path.exists(old_path):
-                    os.rename(old_path, new_path)
-        
-        return True
-    except Exception as e:
-        st.error(f"Error extracting dataset: {str(e)}")
-        return False
-
-# Function to load from Hugging Face datasets
 def load_hf_dataset(dataset_source, progress_callback):
     examples = []
     
@@ -233,7 +185,6 @@ def load_hf_dataset(dataset_source, progress_callback):
     progress_callback(1.0, f"Completed loading {len(examples)} examples")
     return examples
 
-# Function to load from local CSV files
 def load_csv_dataset(dataset_name, progress_callback):
     examples = []
     file_path = f"datasets/{dataset_name}.csv"
@@ -268,7 +219,6 @@ def load_csv_dataset(dataset_name, progress_callback):
     
     return examples
 
-# Load and display dataset
 def display_dataset(dataset_source):
     # Create progress tracker
     progress_callback = create_progress_tracker()
