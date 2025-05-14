@@ -3,6 +3,8 @@ import pandas as pd
 from datasets import load_dataset
 import os
 import glob
+import zipfile
+from io import BytesIO
 
 st.set_page_config(page_title="Dataset Explorer", layout="wide")
 
@@ -37,6 +39,46 @@ def create_progress_tracker():
         message.info(detail)
     
     return update
+
+# Function to extract the azaria-mitchell dataset
+def extract_azaria_mitchell_dataset():
+    base_dir = "datasets/azaria-mitchell"
+    zip_file = os.path.join(base_dir, "dataset.zip")
+    
+    # Check if the ZIP file exists
+    if not os.path.exists(zip_file):
+        st.error("Azaria-Mitchell dataset ZIP file not found. Please download it first.")
+        return False
+    
+    try:
+        # Extract zip file contents
+        with zipfile.ZipFile(zip_file, 'r') as z:
+            z.extractall(base_dir)
+        
+        # List extracted files
+        extracted_files = [f for f in os.listdir(base_dir) if f.endswith('.csv')]
+        if not extracted_files:
+            st.error("No CSV files found in the extracted dataset.")
+            return False
+        
+        st.success(f"Successfully extracted {len(extracted_files)} files")
+        
+        # Format filenames to match the expected pattern
+        for file in extracted_files:
+            if "_true_false.csv" not in file.lower():
+                category = file.split('_')[0].lower()
+                new_filename = f"{category}_true_false.csv"
+                old_path = os.path.join(base_dir, file)
+                new_path = os.path.join(base_dir, new_filename)
+                
+                # Only rename if needed
+                if file != new_filename and os.path.exists(old_path):
+                    os.rename(old_path, new_path)
+        
+        return True
+    except Exception as e:
+        st.error(f"Error extracting dataset: {str(e)}")
+        return False
 
 # Function to load from Hugging Face datasets
 def load_hf_dataset(dataset_source, progress_callback):
@@ -134,57 +176,59 @@ def load_hf_dataset(dataset_source, progress_callback):
     elif dataset_source == "azaria-mitchell":
         progress_callback(0.1, "Loading Azaria-Mitchell dataset...")
         try:
-            # Check if the dataset files have been extracted
             base_dir = "datasets/azaria-mitchell"
-            if not os.path.exists(base_dir) or len(glob.glob(f"{base_dir}/*_true_false.csv")) == 0:
-                st.warning(f"No extracted CSV files found in {base_dir}. The dataset might need to be extracted first.")
+            csv_files = glob.glob(f"{base_dir}/*_true_false.csv")
+            
+            # Check if CSV files exist
+            if not csv_files:
+                # Try to extract the dataset from the ZIP file
+                progress_callback(0.2, "No CSV files found. Attempting to extract from ZIP...")
+                extraction_success = extract_azaria_mitchell_dataset()
                 
-                # Check if the zip file exists
-                zip_file = os.path.join(base_dir, "dataset.zip")
-                if os.path.exists(zip_file):
-                    st.info("Found dataset.zip file. Please extract it to access the dataset.")
+                if extraction_success:
+                    progress_callback(0.3, "Dataset extracted successfully")
+                    # Get the list of CSV files after extraction
+                    csv_files = glob.glob(f"{base_dir}/*_true_false.csv")
                 else:
-                    st.error("Azaria-Mitchell dataset files not found. Please download and extract the dataset.")
+                    progress_callback(1.0, "Failed to extract dataset", 
+                                     "Please run the download_azaria_mitchell.py script first")
+                    return []
+            
+            # Process each CSV file in the directory
+            for i, csv_path in enumerate(csv_files):
+                category = os.path.basename(csv_path).replace('_true_false.csv', '')
+                split_progress = 0.3 + (i / len(csv_files)) * 0.6
+                progress_callback(split_progress, f"Loading category: {category}")
+                
+                try:
+                    df = pd.read_csv(csv_path)
                     
-                progress_callback(1.0, "Dataset not available", "Please extract the dataset files")
+                    # Check for required columns
+                    if 'statement' not in df.columns or 'label' not in df.columns:
+                        progress_callback(split_progress, f"Skipping {category}: Missing required columns")
+                        continue
+                    
+                    # Process each row
+                    category_examples = []
+                    for idx, row in df.iterrows():
+                        category_examples.append({
+                            "text": row['statement'],
+                            "label": int(row['label'])
+                        })
+                    
+                    examples.extend(category_examples)
+                    progress_callback(split_progress + 0.1, f"Loaded {category}: {len(category_examples)} examples")
+                except Exception as e:
+                    progress_callback(split_progress, f"Error loading {category}: {str(e)}")
+            
+            if not examples:
+                progress_callback(1.0, "No examples loaded", 
+                                 "Check the dataset structure or re-download the dataset")
                 return []
             
-            # If we reach here, we should have CSV files to process
-            am_splits = ["animals", "cities", "companies", "inventions", "facts", "elements", "generated"]
-            
-            for i, category in enumerate(am_splits):
-                split_progress = 0.1 + (i / len(am_splits)) * 0.8
-                progress_callback(split_progress, f"Loading Azaria-Mitchell split: {category}")
-                
-                csv_path = os.path.join(base_dir, f"{category}_true_false.csv")
-                
-                if os.path.exists(csv_path):
-                    try:
-                        # Load CSV file
-                        category_df = pd.read_csv(csv_path)
-                        
-                        # Check for required columns
-                        if 'statement' not in category_df.columns or 'label' not in category_df.columns:
-                            progress_callback(split_progress, f"Skipping {category} file: missing required columns")
-                            continue
-                        
-                        # Process each row
-                        category_examples = []
-                        for idx, row in enumerate(category_df.itertuples()):
-                            category_examples.append({
-                                "text": row.statement,
-                                "label": int(row.label)
-                            })
-                        
-                        examples.extend(category_examples)
-                        progress_callback(split_progress, f"Loaded {category} file",
-                                      f"Added {len(category_examples)} examples from {category}")
-                    except Exception as e:
-                        progress_callback(split_progress, f"Error loading {category} file: {str(e)}")
-                else:
-                    progress_callback(split_progress, f"File not found: {csv_path}")
+            progress_callback(0.95, f"Completed loading {len(examples)} examples")
         except Exception as e:
-            progress_callback(0.9, f"Error loading Azaria-Mitchell: {str(e)}")
+            progress_callback(0.95, f"Error with Azaria-Mitchell dataset: {str(e)}")
     
     progress_callback(1.0, f"Completed loading {len(examples)} examples")
     return examples

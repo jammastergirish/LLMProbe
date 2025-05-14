@@ -11,21 +11,8 @@ st.set_page_config(page_title="Saved Runs", layout="wide")
 
 st.title("📊 Saved Runs")
 
-# User notification about the optimized loading approach
-st.info("""
-❕ **Performance Optimizations:** Heavy visualizations (like feature grids and per-layer images) are now loaded on-demand.
-Click the relevant buttons to load these visualizations when you need them.
-""")
-
-# Option to choose quick view mode
 quick_view = st.checkbox("⚡ Enable Quick View Mode (Skip loading large visualizations)", value=True)
 
-if quick_view:
-    st.success("Quick View Mode enabled: Large visualizations will only be loaded when explicitly requested.")
-else:
-    st.warning("Quick View Mode disabled: All visualizations will be loaded. This may cause slower performance.")
-
-# List all saved runs
 if os.path.exists(SAVED_DATA_DIR):
     run_folders = sorted(
         [f for f in os.listdir(SAVED_DATA_DIR) if os.path.isdir(
