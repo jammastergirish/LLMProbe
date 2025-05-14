@@ -13,7 +13,7 @@ def count_categories(examples):
     labels = [example['label'] for example in examples]
     return Counter(labels)
 
-def load_dataset(dataset_source, progress_callback, max_samples=5000, custom_file=None, tf_splits=None, am_splits=None):
+def load_dataset(dataset_source, progress_callback, max_samples=5000, custom_file=None, tf_splits=None):
     """Load dataset with progress updates"""
     examples = []
 
@@ -178,9 +178,9 @@ def load_dataset(dataset_source, progress_callback, max_samples=5000, custom_fil
                           "Initializing true-false datasets from multiple sources")
         try:
             from datasets import load_dataset, concatenate_datasets
-
+            
             if tf_splits is None:
-                tf_splits = ["animals", "cities", "companies",
+                tf_splits = ["animals", "cities", "companies", 
                              "inventions", "facts", "elements", "generated"]
 
             progress_callback(0.65, "Loading TrueFalse dataset splits...",
@@ -220,84 +220,6 @@ def load_dataset(dataset_source, progress_callback, max_samples=5000, custom_fil
         except Exception as e:
             progress_callback(0.85, f"Error loading TrueFalse: {str(e)}",
                               "Continuing with other datasets if selected")
-
-    if dataset_source in ["azaria-mitchell", "all"]:
-        progress_callback(0.6, "Preparing to load Azaria-Mitchell dataset...",
-                          "Initializing azaria-mitchell true-false dataset from local files")
-        try:
-            import pandas as pd
-            import os
-
-            # Default categories if none are specified
-            if am_splits is None:
-                am_splits = ["animals", "cities", "companies",
-                              "inventions", "facts", "elements", "generated"]
-
-            progress_callback(0.65, "Loading Azaria-Mitchell dataset splits...",
-                              f"Processing {len(am_splits)} dataset categories")
-
-            start_examples = len(examples)
-            base_dir = "datasets/azaria-mitchell"
-
-            # Check if directory exists
-            if not os.path.exists(base_dir):
-                os.makedirs(base_dir, exist_ok=True)
-                progress_callback(0.7, "Creating directory for Azaria-Mitchell dataset",
-                                  f"Created directory {base_dir}")
-
-            # Process each category
-            for i, category in enumerate(am_splits):
-                split_progress = 0.65 + (i / len(am_splits)) * 0.1
-                progress_callback(split_progress, f"Loading Azaria-Mitchell split: {category}",
-                                 f"Processing category {i+1}/{len(am_splits)}")
-
-                csv_path = os.path.join(base_dir, f"{category}_true_false.csv")
-
-                if os.path.exists(csv_path):
-                    try:
-                        # Load CSV file
-                        category_df = pd.read_csv(csv_path)
-
-                        # Check for required columns
-                        if 'statement' not in category_df.columns or 'label' not in category_df.columns:
-                            progress_callback(split_progress, f"Skipping {category} file: missing columns",
-                                           f"CSV must contain 'statement' and 'label' columns")
-                            continue
-
-                        # Process each row
-                        category_examples = []
-                        for idx, row in enumerate(category_df.itertuples()):
-                            category_examples.append({
-                                "text": row.statement,
-                                "label": int(row.label)
-                            })
-
-                        examples.extend(category_examples)
-                        progress_callback(split_progress, f"Loaded {category} file",
-                                       f"Added {len(category_examples)} examples from {category}")
-
-                    except Exception as e:
-                        progress_callback(split_progress, f"Error loading {category} file: {str(e)}",
-                                       f"Skipping this category")
-                else:
-                    progress_callback(split_progress, f"File not found: {csv_path}",
-                                   f"Skipping this category. Please download the dataset.")
-
-            # Check if any examples were added
-            if len(examples) - start_examples > 0:
-                # Limit if needed
-                if len(examples) - start_examples > max_samples and dataset_source != "all":
-                    examples = examples[:start_examples + max_samples]
-
-                progress_callback(0.85, f"Loaded Azaria-Mitchell dataset: Added {len(examples) - start_examples} examples",
-                              f"Total examples so far: {len(examples)}")
-            else:
-                progress_callback(0.85, "No Azaria-Mitchell examples loaded",
-                                "Please ensure the dataset files are properly downloaded to 'datasets/azaria-mitchell/[category]_true_false.csv'")
-
-        except Exception as e:
-            progress_callback(0.85, f"Error loading Azaria-Mitchell dataset: {str(e)}",
-                          "Continuing with other datasets if selected")
 
     progress_callback(1.0, f"Prepared {len(examples)} labeled examples for probing",
                       f"Dataset preparation complete with {len(examples)} total examples")

@@ -146,7 +146,7 @@ if model_name == "custom":
 # DATASETS
 import glob
 csv_files = glob.glob('datasets/*.csv')
-dataset_options = ["truefalse", "azaria-mitchell", "truthfulqa", "boolq", "fever", "custom"]
+dataset_options = ["truefalse", "truthfulqa", "boolq", "fever", "custom"]
 
 csv_dataset_options = [os.path.basename(f).replace('.csv', '') for f in csv_files]
 dataset_options.extend(csv_dataset_options)
@@ -157,17 +157,11 @@ dataset_source = st.sidebar.selectbox(
     help="Select an existing dataset or upload a custom dataset, or add your existing dataset to the datasets folder and it'll show up here automatically"
 )
 
-# Common categories for both TrueFalse and Azaria-Mitchell datasets
 all_tf_splits = [
     "animals", "cities", "companies",
     "inventions", "facts", "elements", "generated"
 ]
 
-# Initialize variables
-tf_splits = all_tf_splits
-am_splits = all_tf_splits
-
-# Show category selection for TrueFalse dataset
 if dataset_source == "truefalse":
     selected_tf_splits = st.sidebar.multiselect(
         "Select TrueFalse dataset categories",
@@ -175,38 +169,8 @@ if dataset_source == "truefalse":
         default=all_tf_splits
     )
     tf_splits = selected_tf_splits
-
-# Show category selection for Azaria-Mitchell dataset
-elif dataset_source == "azaria-mitchell":
-    selected_am_splits = st.sidebar.multiselect(
-        "Select Azaria-Mitchell dataset categories",
-        options=all_tf_splits,
-        default=all_tf_splits,
-        help="Select categories to include from the Azaria-Mitchell dataset"
-    )
-    am_splits = selected_am_splits
-
-    # Check if dataset directory exists, otherwise show download instructions
-    if not os.path.exists('datasets/azaria-mitchell'):
-        st.sidebar.warning(
-            "Azaria-Mitchell dataset directory not found. Please download the dataset from: "
-            "https://www.azariaa.com/Content/Datasets/true-false-dataset.zip and extract it to "
-            "datasets/azaria-mitchell/"
-        )
-
-        # Add download instructions
-        with st.sidebar.expander("Download Instructions"):
-            st.markdown("""
-            1. Download the dataset from [here](https://www.azariaa.com/Content/Datasets/true-false-dataset.zip)
-            2. Extract the ZIP file
-            3. Create a folder named `azaria-mitchell` inside the `datasets` directory
-            4. Place the CSV files in this format: `[category]_true_false.csv` in the folder
-
-            Expected files:
-            - datasets/azaria-mitchell/animals_true_false.csv
-            - datasets/azaria-mitchell/cities_true_false.csv
-            - etc.
-            """)
+else:
+    tf_splits = all_tf_splits
 
 if dataset_source == "custom":
     custom_file = st.sidebar.file_uploader(
@@ -637,8 +601,7 @@ if run_button:
                     dataset_tracker.update,
                     max_samples=max_samples,
                     custom_file=file_obj,
-                    tf_splits=tf_splits,
-                    am_splits=am_splits
+                    tf_splits=tf_splits
                 )
             except Exception as e:
                 dataset_tracker.update(1.0, f"Error loading {dataset_source} dataset", str(e))
@@ -651,8 +614,7 @@ if run_button:
                     dataset_tracker.update,
                     max_samples=max_samples,
                     custom_file=custom_file,
-                    tf_splits=tf_splits,
-                    am_splits=am_splits
+                    tf_splits=tf_splits
                 )
             else:
                 dataset_tracker.update(1.0, "No file uploaded", "Please upload a CSV file")
@@ -664,8 +626,7 @@ if run_button:
                 dataset_tracker.update,
                 max_samples=max_samples,
                 custom_file=None,
-                tf_splits=tf_splits,
-                am_splits=am_splits
+                tf_splits=tf_splits
             )
 
         # Check if we got any examples
