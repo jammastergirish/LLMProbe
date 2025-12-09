@@ -200,6 +200,12 @@ def get_hidden_states_batched(examples, model, tokenizer, model_name, output_lay
             # Move to device
             inputs = {k: v.to(device) for k, v in inputs.items()}
 
+            # For T5 models, we need to set up decoder inputs
+            if "t5" in model_name.lower():
+                # Add empty decoder_input_ids for T5 models (will be auto-generated in the model)
+                inputs["decoder_input_ids"] = torch.ones((inputs["input_ids"].shape[0], 1),
+                                              dtype=torch.long, device=device)
+
             with torch.no_grad():
                 outputs = model(**inputs)
                 hidden_states = outputs.hidden_states

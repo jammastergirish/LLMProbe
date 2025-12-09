@@ -7,7 +7,6 @@ LLM Probe is a tool for analyzing and visualizing representations in language mo
 - Compare accuracy and selectivity across different model layers
 - Analyze PCA visualizations of hidden state activations
 - Explore how models separate statements
-- Train and analyze sparse autoencoders to detect interpretable features
 - View feature activations and neuron alignment with signals
 
 LLM Probe supports various models and datasets, making it easy to explore how different language models encode and process factual information.

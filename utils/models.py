@@ -1,4 +1,5 @@
 model_options = [
+    "meta-llama/Meta-Llama-3-8B-Instruct",
     "meta-llama/Llama-3.2-1B-Instruct",
     "meta-llama/Llama-3.2-1B",
     "meta-llama/Llama-3.2-3B-Instruct",

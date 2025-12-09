@@ -1,9 +1,10 @@
 import csv
 import random
+import string
 
 
-def generate_arithmetic_dataset_csv(max_number, n=5000):
-    with open(f"arithmetic_{max_number}.csv", mode="w", newline="") as file:
+def generate_summation_dataset_csv(max_number, n=5000):
+    with open(f"summation_{max_number}.csv", mode="w", newline="") as file:
         writer = csv.writer(file)
         writer.writerow(["statement", "label"])
 
@@ -16,13 +17,14 @@ def generate_arithmetic_dataset_csv(max_number, n=5000):
                 text = f"{a} + {b} = {correct_sum}"
                 label = 1
             else:
-                incorrect_sum = a + b + \
-                    random.choice([i for i in range(-10, 11) if i != 0])
+                incorrect_sum = (
+                    a + b +
+                        random.choice([i for i in range(-10, 11) if i != 0])
+                )
                 text = f"{a} + {b} = {incorrect_sum}"
                 label = 0
 
             writer.writerow([text, label])
-
 
 
 def generate_inequality_dataset_csv(max_number, n=5000):
@@ -49,14 +51,6 @@ def generate_inequality_dataset_csv(max_number, n=5000):
             writer.writerow([statement, label])
 
 
-# Example usage
-
-
-
-
-# 1. Even or Odd
-
-
 def generate_even_odd_dataset_csv(max_number, n=5000):
     with open(f"even_odd_{max_number}.csv", mode="w", newline="") as file:
         writer = csv.writer(file)
@@ -70,8 +64,6 @@ def generate_even_odd_dataset_csv(max_number, n=5000):
                 statement = f"{a if a % 2 != 0 else a + 1} is even"
                 label = 0
             writer.writerow([statement, label])
-
-# 2. Divisibility
 
 
 def generate_divisibility_dataset_csv(max_number, divisor=5, n=5000):
@@ -91,8 +83,6 @@ def generate_divisibility_dataset_csv(max_number, divisor=5, n=5000):
                 label = 0
             writer.writerow([statement, label])
 
-# 3. Multiplication
-
 
 def generate_multiplication_dataset_csv(max_number, n=5000):
     with open(f"multiplication_{max_number}.csv", mode="w", newline="") as file:
@@ -111,8 +101,6 @@ def generate_multiplication_dataset_csv(max_number, n=5000):
                 statement = f"{a} * {b} = {incorrect}"
                 label = 0
             writer.writerow([statement, label])
-
-# 4. Chained Inequality
 
 
 def generate_chained_inequality_dataset_csv(max_number, n=5000):
@@ -136,21 +124,113 @@ def generate_chained_inequality_dataset_csv(max_number, n=5000):
                 label = 0
             writer.writerow([statement, label])
 
-# 5. Logical AND Truth Table
+
+def get_random_vars(n=2):
+    """Get n unique random uppercase letters"""
+    return random.sample(string.ascii_uppercase, n)
 
 
-def generate_logical_and_dataset_csv(n=5000):
-    with open("logical_and.csv", mode="w", newline="") as file:
+def generate_boolean_and_dataset_csv(n=5000):
+    with open("boolean_and.csv", mode="w", newline="") as file:
         writer = csv.writer(file)
         writer.writerow(["statement", "label"])
         for i in range(n):
-            A = random.choice(["true", "false"])
-            B = random.choice(["true", "false"])
-            label = 1 if A == "true" and B == "true" else 0
-            statement = f"If A is {A} and B is {B}, then A and B is true"
+            var1, var2 = get_random_vars(2)
+            val1 = random.choice(["true", "false"])
+            val2 = random.choice(["true", "false"])
+            label = 1 if val1 == "true" and val2 == "true" else 0
+            statement = f"If {var1} is {val1} and {var2} is {val2}, then {var1} and {var2} is true"
             writer.writerow([statement, label])
 
-# 6. Digit Counting
+
+def generate_boolean_or_dataset_csv(n=5000):
+    with open("boolean_or.csv", mode="w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(["statement", "label"])
+        for i in range(n):
+            var1, var2 = get_random_vars(2)
+            val1 = random.choice(["true", "false"])
+            val2 = random.choice(["true", "false"])
+            label = 1 if val1 == "true" or val2 == "true" else 0
+            statement = f"If {var1} is {val1} and {var2} is {val2}, then {var1} or {var2} is true"
+            writer.writerow([statement, label])
+
+
+def generate_boolean_not_dataset_csv(n=5000):
+    with open("boolean_not.csv", mode="w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(["statement", "label"])
+        for i in range(n):
+            var = random.choice(string.ascii_uppercase)
+            val = random.choice(["true", "false"])
+            label = 1 if val == "false" else 0
+            statement = f"If {var} is {val}, then NOT {var} is true"
+            writer.writerow([statement, label])
+
+
+def generate_boolean_xor_dataset_csv(n=5000):
+    with open("boolean_xor.csv", mode="w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(["statement", "label"])
+        for i in range(n):
+            var1, var2 = get_random_vars(2)
+            val1 = random.choice(["true", "false"])
+            val2 = random.choice(["true", "false"])
+            label = 1 if (val1 == "true") != (val2 == "true") else 0
+            statement = f"If {var1} is {val1} and {var2} is {val2}, then {var1} XOR {var2} is true"
+            writer.writerow([statement, label])
+
+
+def generate_boolean_implies_dataset_csv(n=5000):
+    with open("boolean_implies.csv", mode="w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(["statement", "label"])
+        for i in range(n):
+            var1, var2 = get_random_vars(2)
+            val1 = random.choice(["true", "false"])
+            val2 = random.choice(["true", "false"])
+            label = 1 if val1 == "false" or val2 == "true" else 0
+            statement = f"If {var1} is {val1} and {var2} is {val2}, then {var1} implies {var2} is true"
+            writer.writerow([statement, label])
+
+
+def generate_boolean_iff_dataset_csv(n=5000):
+    with open("boolean_iff.csv", mode="w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(["statement", "label"])
+        for i in range(n):
+            var1, var2 = get_random_vars(2)
+            val1 = random.choice(["true", "false"])
+            val2 = random.choice(["true", "false"])
+            label = 1 if (val1 == "true") == (val2 == "true") else 0
+            statement = f"If {var1} is {val1} and {var2} is {val2}, then {var1} if and only if {var2} is true"
+            writer.writerow([statement, label])
+
+
+def generate_boolean_nand_dataset_csv(n=5000):
+    with open("boolean_nand.csv", mode="w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(["statement", "label"])
+        for i in range(n):
+            var1, var2 = get_random_vars(2)
+            val1 = random.choice(["true", "false"])
+            val2 = random.choice(["true", "false"])
+            label = 0 if val1 == "true" and val2 == "true" else 1
+            statement = f"If {var1} is {val1} and {var2} is {val2}, then {var1} NAND {var2} is true"
+            writer.writerow([statement, label])
+
+
+def generate_boolean_nor_dataset_csv(n=5000):
+    with open("boolean_nor.csv", mode="w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(["statement", "label"])
+        for i in range(n):
+            var1, var2 = get_random_vars(2)
+            val1 = random.choice(["true", "false"])
+            val2 = random.choice(["true", "false"])
+            label = 1 if val1 == "false" and val2 == "false" else 0
+            statement = f"If {var1} is {val1} and {var2} is {val2}, then {var1} NOR {var2} is true"
+            writer.writerow([statement, label])
 
 
 def generate_digit_count_dataset_csv(n=5000):
@@ -169,8 +249,6 @@ def generate_digit_count_dataset_csv(n=5000):
                 statement = f"The number {num} has {incorrect_len} digits"
                 label = 0
             writer.writerow([statement, label])
-
-# 7. Set Membership
 
 
 def generate_set_membership_dataset_csv(max_number, n=5000):
@@ -191,8 +269,8 @@ def generate_set_membership_dataset_csv(max_number, n=5000):
             writer.writerow([statement, label])
 
 
-generate_arithmetic_dataset_csv(1000)
-generate_arithmetic_dataset_csv(10)
+generate_summation_dataset_csv(1000)
+generate_summation_dataset_csv(10)
 generate_inequality_dataset_csv(1000)
 generate_inequality_dataset_csv(10)
 generate_even_odd_dataset_csv(1000)
@@ -203,7 +281,14 @@ generate_multiplication_dataset_csv(1000)
 generate_multiplication_dataset_csv(10)
 generate_chained_inequality_dataset_csv(1000)
 generate_chained_inequality_dataset_csv(10)
-generate_logical_and_dataset_csv()
+generate_boolean_and_dataset_csv()
+generate_boolean_or_dataset_csv()
+generate_boolean_not_dataset_csv()
+generate_boolean_xor_dataset_csv()
+generate_boolean_implies_dataset_csv()
+generate_boolean_iff_dataset_csv()
+generate_boolean_nand_dataset_csv()
+generate_boolean_nor_dataset_csv()
 generate_digit_count_dataset_csv()
 generate_set_membership_dataset_csv(10)
 generate_set_membership_dataset_csv(1000)

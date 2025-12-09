@@ -9,3 +9,6 @@ saved_data/
 *.pyc
 .DS_Store
 .env
+.DS_Store
+utils/__pycache__/file_manager.cpython-312.pyc
+utils/__pycache__/models.cpython-312.pyc
