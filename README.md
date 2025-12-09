@@ -1,3 +1,5 @@
+<img width="1391" alt="Screenshot 2025-05-16 at 23 39 29" src="https://github.com/user-attachments/assets/9d5c81a5-f5ac-4ee9-813d-836cb6092eb7" />
+
 # LLM Probe
 
 LLM Probe is a tool for analyzing and visualizing representations in language models. It allows users to:
