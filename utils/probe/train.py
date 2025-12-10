@@ -1,25 +1,75 @@
 import torch
+import numpy as np
+from sklearn.linear_model import LogisticRegression
 from utils.probe.linear_probe import LinearProbe
 
-def train_probe(features, labels, epochs=100, lr=1e-2, device=torch.device("cpu")):
-    """Train a linear probe on the given features and labels"""
-    probe = LinearProbe(features.shape[1]).to(device)
-    criterion = torch.nn.BCELoss()
-    optimizer = torch.optim.Adam(probe.parameters(), lr=lr)
+def train_probe(features, labels, epochs=100, lr=1e-2, device=torch.device("cpu"), method="adam"):
+    """
+    Train a linear probe on the given features and labels.
+    
+    Args:
+        features: Input features tensor
+        labels: Target labels tensor
+        epochs: Number of training epochs (only used for Adam method)
+        lr: Learning rate (only used for Adam method)
+        device: Device to run on
+        method: Training method - "adam" or "closed_form"
+    
+    Returns:
+        probe: Trained LinearProbe model
+        loss: Final training loss
+    """
+    if method == "closed_form":
+        # Use sklearn's LogisticRegression for closed-form solution
+        # Convert to numpy for sklearn
+        X = features.cpu().numpy()
+        y = labels.cpu().numpy()
+        
+        # Train logistic regression
+        lr_model = LogisticRegression(
+            max_iter=1000,  # sklearn's internal iterations, not our epochs
+            solver='lbfgs',  # Good for small-medium datasets
+            random_state=42
+        )
+        lr_model.fit(X, y)
+        
+        # Create a PyTorch probe and set weights from sklearn model
+        probe = LinearProbe(features.shape[1]).to(device)
+        with torch.no_grad():
+            # sklearn's coef_ is (1, n_features), we need (n_features, 1)
+            probe.linear.weight.data = torch.tensor(
+                lr_model.coef_, dtype=torch.float32, device=device
+            )
+            probe.linear.bias.data = torch.tensor(
+                lr_model.intercept_, dtype=torch.float32, device=device
+            )
+        
+        # Calculate loss for consistency
+        with torch.no_grad():
+            outputs = probe(features)
+            criterion = torch.nn.BCELoss()
+            loss = criterion(outputs, labels.float())
+        
+        return probe, loss.item()
+    
+    else:  # method == "adam"
+        probe = LinearProbe(features.shape[1]).to(device)
+        criterion = torch.nn.BCELoss()
+        optimizer = torch.optim.Adam(probe.parameters(), lr=lr)
 
-    for epoch in range(epochs):
-        optimizer.zero_grad()
-        outputs = probe(features)
-        loss = criterion(outputs, labels.float())
-        loss.backward()
-        optimizer.step()
+        for epoch in range(epochs):
+            optimizer.zero_grad()
+            outputs = probe(features)
+            loss = criterion(outputs, labels.float())
+            loss.backward()
+            optimizer.step()
 
-    return probe, loss.item()
+        return probe, loss.item()
 
 
 def train_and_evaluate_model(train_hidden_states, train_labels, test_hidden_states, test_labels,
                              num_layers, use_control_tasks, progress_callback=None, epochs=100, lr=0.01,
-                             device=torch.device("cpu")):
+                             device=torch.device("cpu"), training_method="adam"):
     """Train probes across all layers and evaluate performance"""
     probes = []
     accuracies = []
@@ -37,51 +87,75 @@ def train_and_evaluate_model(train_hidden_states, train_labels, test_hidden_stat
         train_feats = train_hidden_states[:, layer, :]
         test_feats = test_hidden_states[:, layer, :]
 
-        # Train probe with epoch progress
-        probe = LinearProbe(train_feats.shape[1]).to(device)
-        criterion = torch.nn.BCELoss()
-        optimizer = torch.optim.Adam(probe.parameters(), lr=lr)
+        # Train probe based on selected method
+        if training_method == "closed_form":
+            # Closed-form logistic regression - no epochs needed
+            progress_callback(main_progress + 0.1/num_layers,
+                             f"Layer {layer+1}/{num_layers}: Training with closed-form logistic regression",
+                             "Solving optimal solution directly...")
+            
+            probe, loss = train_probe(
+                train_feats, train_labels, epochs=epochs, lr=lr, 
+                device=device, method="closed_form"
+            )
+            
+            # Calculate accuracy
+            with torch.no_grad():
+                outputs = probe(train_feats)
+                preds = (outputs > 0.5).long()
+                acc = (preds == train_labels).float().mean().item()
+                output_msg = f"Layer {layer+1}/{num_layers} - Closed-form: loss={loss:.4f}, acc={acc:.4f}"
+                print(output_msg)
+                
+                if progress_callback and hasattr(progress_callback, 'add_training_output'):
+                    progress_callback.add_training_output(output_msg)
+        
+        else:  # training_method == "adam"
+            # Adam optimizer - iterative training
+            probe = LinearProbe(train_feats.shape[1]).to(device)
+            criterion = torch.nn.BCELoss()
+            optimizer = torch.optim.Adam(probe.parameters(), lr=lr)
 
-        # Print initial loss and accuracy
-        with torch.no_grad():
-            outputs = probe(train_feats)
-            loss = criterion(outputs, train_labels.float()).item()
-            preds = (outputs > 0.5).long()
-            acc = (preds == train_labels).float().mean().item()
-            output_msg = f"Layer {layer+1}/{num_layers} - Initial: loss={loss:.4f}, acc={acc:.4f}"
-            print(output_msg)
+            # Print initial loss and accuracy
+            with torch.no_grad():
+                outputs = probe(train_feats)
+                loss = criterion(outputs, train_labels.float()).item()
+                preds = (outputs > 0.5).long()
+                acc = (preds == train_labels).float().mean().item()
+                output_msg = f"Layer {layer+1}/{num_layers} - Initial: loss={loss:.4f}, acc={acc:.4f}"
+                print(output_msg)
 
-            # Update UI if progress_callback is provided
-            if progress_callback and hasattr(progress_callback, 'add_training_output'):
-                progress_callback.add_training_output(output_msg)
+                # Update UI if progress_callback is provided
+                if progress_callback and hasattr(progress_callback, 'add_training_output'):
+                    progress_callback.add_training_output(output_msg)
 
-        for epoch in range(epochs):
-            # Progress tracker update
-            if epoch % 10 == 0 or epoch == epochs - 1:
-                epoch_progress = main_progress + (epoch / epochs) / num_layers
-                progress_callback(epoch_progress,
-                                 f"Layer {layer+1}/{num_layers}: Epoch {epoch+1}/{epochs}",
-                                 f"Training linear probe for truth detection")
+            for epoch in range(epochs):
+                # Progress tracker update
+                if epoch % 10 == 0 or epoch == epochs - 1:
+                    epoch_progress = main_progress + (epoch / epochs) / num_layers
+                    progress_callback(epoch_progress,
+                                     f"Layer {layer+1}/{num_layers}: Epoch {epoch+1}/{epochs}",
+                                     f"Training linear probe for truth detection")
 
-            # Training step
-            optimizer.zero_grad()
-            outputs = probe(train_feats)
-            loss = criterion(outputs, train_labels.float())
-            loss.backward()
-            optimizer.step()
+                # Training step
+                optimizer.zero_grad()
+                outputs = probe(train_feats)
+                loss = criterion(outputs, train_labels.float())
+                loss.backward()
+                optimizer.step()
 
-            # Print training progress every 10 epochs
-            if epoch % 10 == 0 or epoch == epochs - 1:
-                with torch.no_grad():
-                    current_loss = loss.item()
-                    preds = (outputs > 0.5).long()
-                    acc = (preds == train_labels).float().mean().item()
-                    output_msg = f"Layer {layer+1}/{num_layers} - Epoch {epoch+1}/{epochs}: loss={current_loss:.4f}, acc={acc:.4f}"
-                    print(output_msg)
+                # Print training progress every 10 epochs
+                if epoch % 10 == 0 or epoch == epochs - 1:
+                    with torch.no_grad():
+                        current_loss = loss.item()
+                        preds = (outputs > 0.5).long()
+                        acc = (preds == train_labels).float().mean().item()
+                        output_msg = f"Layer {layer+1}/{num_layers} - Epoch {epoch+1}/{epochs}: loss={current_loss:.4f}, acc={acc:.4f}"
+                        print(output_msg)
 
-                    # Update UI if progress_callback is provided
-                    if progress_callback and hasattr(progress_callback, 'add_training_output'):
-                        progress_callback.add_training_output(output_msg)
+                        # Update UI if progress_callback is provided
+                        if progress_callback and hasattr(progress_callback, 'add_training_output'):
+                            progress_callback.add_training_output(output_msg)
 
         # Save trained probe
         probes.append(probe)
@@ -111,7 +185,7 @@ def train_and_evaluate_model(train_hidden_states, train_labels, test_hidden_stat
             shuffled_labels = train_labels[torch.randperm(
                 train_labels.size(0))]
             ctrl_probe, _ = train_probe(
-                train_feats, shuffled_labels, epochs=epochs, lr=lr, device=device)
+                train_feats, shuffled_labels, epochs=epochs, lr=lr, device=device, method=training_method)
 
             with torch.no_grad():
                 ctrl_outputs = ctrl_probe(test_feats)

@@ -177,24 +177,41 @@ if dataset_source == "custom":
         except Exception as e:
             st.sidebar.error(f"Error reading CSV: {str(e)}")
 
-use_linear_probe = st.sidebar.checkbox("Linear Probes", value=True)
+# Linear Probe Configuration
+with st.sidebar.expander("⚙️ Linear Probe Options"):
+    # Training method selection
+    training_method = st.selectbox(
+        "Training Method",
+        ["Closed-Form Logistic Regression", "Adam Optimizer"],
+        index=0,  # Default to closed-form
+        help="Closed-form: Optimal solution, no hyperparameters. Adam: Iterative training with learning rate and epochs."
+    )
 
-if use_linear_probe:
-    with st.sidebar.expander("⚙️ Linear Probe Options"):
-        # Linear probe parameters
+    # Convert to internal format
+    training_method_internal = "closed_form" if training_method == "Closed-Form Logistic Regression" else "adam"
+
+    # Linear probe parameters (only show for Adam)
+    if training_method_internal == "adam":
         probe_epochs = st.number_input(
             "Training epochs", min_value=10, max_value=500, value=100)
         probe_lr = st.number_input(
             "Learning rate", min_value=0.0001, max_value=0.1, value=0.01, format="%.4f")
-        max_samples = st.number_input(
-            "Max samples per dataset", min_value=100, max_value=10000, value=5000)
-        test_size = st.slider("Train/test split", min_value=0.1,
-                              max_value=0.5, value=0.2, step=0.05, key="test_size_slider")
-        batch_size = st.number_input("Batch size", min_value=1, max_value=64, value=16,
-                                     help="Larger batches are faster but use more memory. Use smaller values for large models.")
+    else:
+        # For closed-form, we don't need epochs or learning rate
+        probe_epochs = 100  # Not used, but keep for compatibility
+        probe_lr = 0.01  # Not used, but keep for compatibility
+        st.info(
+            "Closed-form method finds the optimal solution directly - no epochs or learning rate needed!")
 
-        use_control_tasks = st.checkbox(
-            "Add control tasks (shuffled labels)", value=True)
+    max_samples = st.number_input(
+        "Max samples per dataset", min_value=100, max_value=10000, value=5000)
+    test_size = st.slider("Train/test split", min_value=0.1,
+                          max_value=0.5, value=0.2, step=0.05, key="test_size_slider")
+    batch_size = st.number_input("Batch size", min_value=1, max_value=64, value=16,
+                                 help="Larger batches are faster but use more memory. Use smaller values for large models.")
+
+    use_control_tasks = st.checkbox(
+        "Add control tasks (shuffled labels)", value=True)
 
 if is_decoder_only_model(model_name):
     output_layer = st.sidebar.selectbox(
@@ -585,8 +602,9 @@ if run_button:
             "dataset": dataset_source,
             "output_activation": output_layer,
             "batch_size": batch_size,
-            "probe_epochs": probe_epochs,
-            "probe_learning_rate": probe_lr,
+            "training_method": training_method,
+            "probe_epochs": probe_epochs if training_method_internal == "adam" else None,
+            "probe_learning_rate": probe_lr if training_method_internal == "adam" else None,
             "use_control_tasks": use_control_tasks,
             "device": str(device),
             "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -626,36 +644,36 @@ if run_button:
         # 4. Train models with progress
         num_layers = get_num_layers(model)
 
-        # Train linear probes if enabled
+        # Train linear probes
         results = {}
-        if use_linear_probe:
-            training_tracker.update(
-                0, "Training linear probes...", "Initializing")
+        training_tracker.update(
+            0, "Training linear probes...", "Initializing")
 
-            # Show minimal UI details - only progress
-            training_detail.text(
-                "Training in progress... See Detailed Log for full output.")
+        # Show minimal UI details - only progress
+        training_detail.text(
+            "Training in progress... See Detailed Log for full output.")
 
-            # Override the print function for probe training to log output to console and log file but not UI
-            import builtins
-            original_print = builtins.print
-            builtins.print = create_console_print_function(
-                original_print, add_log)
+        # Override the print function for probe training to log output to console and log file but not UI
+        import builtins
+        original_print = builtins.print
+        builtins.print = create_console_print_function(
+            original_print, add_log)
 
-            try:
-                probe_results = train_and_evaluate_model(
-                    train_hidden_states, train_labels,
-                    test_hidden_states, test_labels,
-                    num_layers, use_control_tasks,
-                    progress_callback=training_tracker.update,
-                    epochs=probe_epochs, lr=probe_lr, device=device
-                )
-                results.update(probe_results)
-            finally:
-                # Restore original print function
-                builtins.print = original_print
+        try:
+            probe_results = train_and_evaluate_model(
+                train_hidden_states, train_labels,
+                test_hidden_states, test_labels,
+                num_layers, use_control_tasks,
+                progress_callback=training_tracker.update,
+                epochs=probe_epochs, lr=probe_lr, device=device,
+                training_method=training_method_internal
+            )
+            results.update(probe_results)
+        finally:
+            # Restore original print function
+            builtins.print = original_print
 
-            mark_complete(training_status)
+        mark_complete(training_status)
 
         # 5. Start analysis phase with progress tracking
         analysis_tracker.update(
@@ -715,8 +733,8 @@ if run_button:
             analysis_tracker.update(
                 0.3, "Saving probe weights...", "Writing trained probe parameters to disk")
 
-            # Save probe weights to file if linear probes were used
-            if use_linear_probe and 'probes' in results:
+            # Save probe weights to file
+            if 'probes' in results:
                 probe_weights_path = os.path.join(
                     run_folder, "probe_weights.json")
                 save_probe_weights(results['probes'], probe_weights_path)
